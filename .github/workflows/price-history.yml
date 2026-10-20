@@ -23,6 +23,7 @@ jobs:
           python3 build_history.py \
             --prices https://mtgjson.com/api/v5/AllPrices.json.gz \
             --identifiers https://mtgjson.com/api/v5/csv/cardIdentifiers.csv https://mtgjson.com/api/v5/AllIdentifiers.json.gz \
+            --extra-identifiers https://mtgjson.com/api/v5/csv/tokenIdentifiers.csv \
             --out out --days 90
       - name: Publish to the data branch (one commit, replaced daily so the repo stays small)
         run: |

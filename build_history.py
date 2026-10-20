@@ -66,6 +66,8 @@ def main():
     ap.add_argument("--prices", required=True, help="AllPrices.json(.gz), path or URL")
     ap.add_argument("--identifiers", required=True, nargs="+",
                     help="cardIdentifiers.csv(.gz) or AllIdentifiers.json(.gz); several = fallbacks in order")
+    ap.add_argument("--extra-identifiers", nargs="*", default=[],
+                    help="more identifier files merged in (e.g. tokenIdentifiers.csv); failures are ignored")
     ap.add_argument("--out", required=True)
     ap.add_argument("--days", type=int, default=90)
     ap.add_argument("--today", help="YYYY-MM-DD (UTC); default is today")
@@ -87,6 +89,13 @@ def main():
             print(f"identifiers: {src} failed ({e})", file=sys.stderr, flush=True)
     if not ids:
         sys.exit("could not load any identifier source")
+    for src in a.extra_identifiers:
+        try:
+            more = load_ids(src)
+            ids.update(more)
+            print(f"identifiers: +{len(more)} from {src}", flush=True)
+        except Exception as e:
+            print(f"identifiers: {src} skipped ({e})", file=sys.stderr, flush=True)
 
     series = {}  # scryfall id -> {"n"|"f"|"e": array('i')}, -1 = no price
     latest = d0
