@@ -1,0 +1,33 @@
+# Copy this file to .github/workflows/price-history.yml in the PUBLIC data repo (see README.md).
+name: Build price history
+on:
+  schedule:
+    - cron: "37 9 * * *"   # daily, after MTGJSON's morning build
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: price-history
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install ijson
+      - name: Build shards from MTGJSON
+        run: |
+          python3 build_history.py \
+            --prices https://mtgjson.com/api/v5/AllPrices.json.gz \
+            --identifiers https://mtgjson.com/api/v5/csv/cardIdentifiers.csv https://mtgjson.com/api/v5/AllIdentifiers.json.gz \
+            --out out --days 90
+      - name: Publish to the data branch (one commit, replaced daily so the repo stays small)
+        run: |
+          cd out
+          git init -q -b data
+          git add -A
+          git -c user.name="price-bot" -c user.email="price-bot@users.noreply.github.com" commit -qm "Prices $(date -u +%F)"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" data
