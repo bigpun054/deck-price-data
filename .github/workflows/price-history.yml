@@ -13,22 +13,43 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    env:
+      REMOTE: https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
       - run: pip install ijson
+      - name: Fetch the archive branch (finished 90-day blocks) and the last published recent files
+        run: |
+          mkdir arch prev
+          git -C arch init -q -b archive
+          git -C arch remote add origin "$REMOTE"
+          git -C arch fetch -q --depth=1 origin archive && git -C arch reset -q --hard FETCH_HEAD || echo "no archive branch yet"
+          git -C prev init -q
+          git -C prev remote add origin "$REMOTE"
+          git -C prev fetch -q --depth=1 origin data && git -C prev checkout -q FETCH_HEAD || echo "no data branch yet"
       - name: Build shards from MTGJSON
         run: |
           python3 build_history.py \
             --prices https://mtgjson.com/api/v5/AllPrices.json.gz \
             --identifiers https://mtgjson.com/api/v5/csv/cardIdentifiers.csv https://mtgjson.com/api/v5/AllIdentifiers.json.gz \
             --extra-identifiers https://mtgjson.com/api/v5/csv/tokenIdentifiers.csv \
-            --out out --days 90
-      - name: Publish to the data branch (one commit, replaced daily so the repo stays small)
+            --out out --days 90 \
+            --archive-dir arch --prev prev --keep-days 730 --block-days 90 \
+            --archive-base "https://raw.githubusercontent.com/${{ github.repository }}/archive/"
+      - name: Publish finished blocks to the archive branch (normal commit, only when a block closed or expired)
+        run: |
+          cd arch
+          git add -A
+          if git diff --cached --quiet; then echo "archive unchanged"; else
+            git -c user.name="price-bot" -c user.email="price-bot@users.noreply.github.com" commit -qm "Archive $(date -u +%F)"
+            git push origin HEAD:archive
+          fi
+      - name: Publish recent files to the data branch (one commit, replaced daily so the repo stays small)
         run: |
           cd out
           git init -q -b data
           git add -A
           git -c user.name="price-bot" -c user.email="price-bot@users.noreply.github.com" commit -qm "Prices $(date -u +%F)"
-          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" data
+          git push -f "$REMOTE" data

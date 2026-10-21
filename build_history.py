@@ -1,11 +1,23 @@
 #!/usr/bin/env python3
-"""Build compact 90-day TCGplayer price-history shards from MTGJSON, keyed by Scryfall id.
+"""Build compact TCGplayer price-history shards from MTGJSON, keyed by Scryfall id.
 
-Output layout (served as static files):
-  meta.json            {"latest": "YYYY-MM-DD", "d0": <day number of index 0>, "days": 90, "built": ..., "cards": N}
-  s/<first 3 hex of scryfall id>.json
-                       {"d0": <day number of index 0>, "c": {"<scryfall id>": {"n": [cents|null,...], "f": [...], "e": [...]}}}
+Two kinds of output, so the app only re-downloads a small amount each day:
+
+  recent  (rebuilt every day, served from the `data` branch)
+    meta.json     {"latest", "d0", "days", "block", "arch": [block numbers], "keep", "archive", "built", "cards", "shards"}
+    s/<first 3 hex of scryfall id>.json
+                  {"d0": <day number of index 0>, "c": {"<scryfall id>": {"n": [cents|null,...], "f": [...], "e": [...]}}}
+    Holds only the days of the CURRENT block (1 to --block-days days), so it stays small.
+
+  archive (written once per block, never rewritten, served from the `archive` branch)
+    a/<block number>/<first 3 hex>.json     same shard format, d0 = block number * block-days, block-days values each
+    A block is closed when the calendar rolls into the next one. Blocks are fixed 90-day windows counted from 1970-01-01
+    (block = day number // 90), so a closed block's files never change and the app can keep them forever.
+    Blocks older than --keep-days are deleted.
+
 Day number = whole days since 1970-01-01 (UTC). n = nonfoil, f = foil, e = etched. Prices are US cents (TCGplayer retail).
+MTGJSON only publishes the last 90 days, so an archive block is assembled from the previous run's recent files (--prev)
+plus MTGJSON's window; days neither source has stay null.
 """
 import argparse, csv, datetime as dt, gzip, io, json, os, shutil, sys, tempfile, urllib.request
 from array import array
@@ -61,6 +73,96 @@ def day_num(s):
     return (dt.date(y, m, d) - dt.date(1970, 1, 1)).days
 
 
+def write_shards(root, d0, cards_by_sid):
+    """Write {sid: {fin: [cents|None]}} as shard files root/<first 3 chars>.json. Returns (cards, shards)."""
+    shards = {}
+    for sid, fins in cards_by_sid.items():
+        shards.setdefault(sid[:3], {})[sid] = fins
+    os.makedirs(root, exist_ok=True)
+    for pre, cards in shards.items():
+        with open(os.path.join(root, pre + ".json"), "w") as fh:
+            json.dump({"d0": d0, "c": cards}, fh, separators=(",", ":"))
+    return len(cards_by_sid), len(shards)
+
+
+def read_prev(prev_dir):
+    """The previously published recent files: (d0, last day, folder of shards) or None."""
+    if not prev_dir:
+        return None
+    try:
+        with open(os.path.join(prev_dir, "meta.json")) as fh:
+            m = json.load(fh)
+        sdir = os.path.join(prev_dir, "s")
+        if not os.path.isdir(sdir):
+            return None
+        return int(m["d0"]), day_num(m["latest"]), sdir
+    except Exception as e:
+        print(f"previous data unusable ({e}); building without it", file=sys.stderr, flush=True)
+        return None
+
+
+def make_block(k, B, series, d0, n, prev):
+    """Assemble block k (days k*B .. k*B+B-1) as {sid: {fin: [cents|None]*B}}, or {} if no source has a price in it."""
+    bs = k * B
+    blk = {}
+
+    def put(sid, fin, day, v):
+        arr = blk.setdefault(sid, {}).get(fin)
+        if arr is None:
+            arr = blk[sid][fin] = array("i", [-1] * B)
+        arr[day - bs] = v
+
+    # 1) the previous run's recent files (they hold days MTGJSON's window has already dropped)
+    if prev and prev[0] <= bs + B - 1 and prev[1] >= bs:
+        for name in os.listdir(prev[2]):
+            if not name.endswith(".json"):
+                continue
+            with open(os.path.join(prev[2], name)) as fh:
+                sh = json.load(fh)
+            pd0 = sh["d0"]
+            for sid, fins in sh["c"].items():
+                for fin, vals in fins.items():
+                    for j, v in enumerate(vals):
+                        day = pd0 + j
+                        if v is not None and bs <= day < bs + B:
+                            put(sid, fin, day, v)
+    # 2) MTGJSON's window wins where it has a price
+    lo, hi = max(bs, d0), min(bs + B - 1, d0 + n - 1)
+    if lo <= hi:
+        for sid, fins in series.items():
+            for fin, arr in fins.items():
+                for day in range(lo, hi + 1):
+                    v = arr[day - d0]
+                    if v >= 0:
+                        put(sid, fin, day, v)
+    return {sid: {fin: [None if v < 0 else v for v in arr] for fin, arr in fins.items()} for sid, fins in blk.items()}
+
+
+def update_archive(arch_dir, B, keep_days, last, cur, series, d0, n, prev):
+    """Close every finished block that isn't archived yet, drop blocks past the retention window.
+    Returns the sorted list of block numbers now in the archive."""
+    root = os.path.join(arch_dir, "a")
+    os.makedirs(root, exist_ok=True)
+    have = {int(x) for x in os.listdir(root) if x.isdigit()}
+    keep_from = last - keep_days + 1
+    for k in sorted(have):
+        if (k + 1) * B - 1 < keep_from:  # the whole block is older than we keep
+            shutil.rmtree(os.path.join(root, str(k)))
+            have.discard(k)
+            print(f"archive: dropped block {k} (older than {keep_days} days)", flush=True)
+    first_src = d0 if not prev else min(d0, prev[0])
+    for k in range(max(first_src // B, keep_from // B), cur):
+        if k in have:
+            continue  # closed blocks never change
+        cards = make_block(k, B, series, d0, n, prev)
+        if not cards:
+            continue
+        c, s = write_shards(os.path.join(root, str(k)), k * B, cards)
+        have.add(k)
+        print(f"archive: closed block {k} (days {k * B}..{k * B + B - 1}): {c} cards in {s} shards", flush=True)
+    return sorted(have)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--prices", required=True, help="AllPrices.json(.gz), path or URL")
@@ -68,15 +170,25 @@ def main():
                     help="cardIdentifiers.csv(.gz) or AllIdentifiers.json(.gz); several = fallbacks in order")
     ap.add_argument("--extra-identifiers", nargs="*", default=[],
                     help="more identifier files merged in (e.g. tokenIdentifiers.csv); failures are ignored")
-    ap.add_argument("--out", required=True)
-    ap.add_argument("--days", type=int, default=90)
+    ap.add_argument("--out", required=True, help="folder for the recent files + meta.json (the `data` branch)")
+    ap.add_argument("--days", type=int, default=90, help="how many days of MTGJSON prices to read")
     ap.add_argument("--today", help="YYYY-MM-DD (UTC); default is today")
+    ap.add_argument("--block-days", type=int, default=90, help="archive block length; must not exceed --days")
+    ap.add_argument("--keep-days", type=int, default=730, help="how long the archive keeps history (default 2 years)")
+    ap.add_argument("--archive-dir", help="folder holding the archive branch checkout; finished blocks are added under a/")
+    ap.add_argument("--prev", help="folder with the previously published recent files (the old `data` branch)")
+    ap.add_argument("--archive-base", help="public URL of the archive branch, written into meta.json for the app")
     a = ap.parse_args()
 
+    B = a.block_days
+    if B < 1 or B > a.days:
+        sys.exit("--block-days must be between 1 and --days")
     today = a.today or dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d")
     last = day_num(today)
     d0 = last - a.days + 1
     n = a.days
+    cur = last // B          # the block that is still open
+    rec0 = max(cur * B, d0)  # first day in the recent files
 
     ids = None
     for src in a.identifiers:
@@ -130,24 +242,35 @@ def main():
             print(f"  read {seen} cards", flush=True)
     f.close()
 
-    shards = {}
-    for sid, fins in series.items():
-        shards.setdefault(sid[:3], {})[sid] = {k: [None if v < 0 else v for v in arr] for k, arr in fins.items()}
+    # Archive first: it needs the OLD recent files (--prev) to still describe the block that just closed.
+    arch = []
+    if a.archive_dir:
+        arch = update_archive(a.archive_dir, B, a.keep_days, last, cur, series, d0, n, read_prev(a.prev))
 
-    out = a.out
-    shutil.rmtree(out, ignore_errors=True)
-    os.makedirs(os.path.join(out, "s"))
-    for pre, cards in shards.items():
-        with open(os.path.join(out, "s", pre + ".json"), "w") as fh:
-            json.dump({"d0": d0, "c": cards}, fh, separators=(",", ":"))
+    recent = {}
+    for sid, fins in series.items():
+        out = {}
+        for key, arr in fins.items():
+            part = arr[rec0 - d0:]
+            if any(v >= 0 for v in part):
+                out[key] = [None if v < 0 else v for v in part]
+        if out:
+            recent[sid] = out
+
+    out_dir = a.out
+    shutil.rmtree(out_dir, ignore_errors=True)
+    os.makedirs(out_dir)
+    cards, shards = write_shards(os.path.join(out_dir, "s"), rec0, recent)
     epoch = dt.date(1970, 1, 1)
     meta = {
-        "latest": (epoch + dt.timedelta(days=latest)).isoformat(),
-        "d0": d0, "days": n,
+        "latest": (epoch + dt.timedelta(days=max(latest, rec0))).isoformat(),
+        "d0": rec0, "days": last - rec0 + 1, "block": B, "arch": arch, "keep": a.keep_days,
         "built": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "cards": len(series), "shards": len(shards),
+        "cards": cards, "shards": shards,
     }
-    with open(os.path.join(out, "meta.json"), "w") as fh:
+    if a.archive_base:
+        meta["archive"] = a.archive_base if a.archive_base.endswith("/") else a.archive_base + "/"
+    with open(os.path.join(out_dir, "meta.json"), "w") as fh:
         json.dump(meta, fh, separators=(",", ":"))
     print("done", json.dumps(meta), flush=True)
 
