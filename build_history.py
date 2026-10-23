@@ -15,10 +15,17 @@ Two kinds of output, so the app only re-downloads a small amount each day:
     (block = day number // 90), so a closed block's files never change and the app can keep them forever.
     Blocks older than --keep-days are deleted.
 
-  names (optional, rebuilt every day, in the same `data` branch; needs --names)
+  names (optional, rebuilt every day, in the same `data` branch; needs --names, format 2)
     n/<first 2 letters/digits of the name, "_" if none>.json
-                  {"<normalized name>": {"n": "<card name>", "p": [["<scryfall id>", "<SET>", "<collector number>"], ...]}}
+                  {"<normalized name>": {"n": "<card name>", "o": "<scryfall oracle id>", "p": [<printing>, ...]}}
+      printing  = {"i": scryfall id, "s": SET, "c": collector number,
+                   "f": finishes this printing exists in, letters n=nonfoil f=foil e=etched s=signed,
+                   "t": [special treatments: MTGJSON promoTypes and frameEffects as written (e.g. surgefoil, showcase),
+                         a non-black border colour, and fullart / promo / oversized / textless / alternative],  (omitted if none)
+                   "r": rarity letter c/u/r/m/s(pecial)/b(onus),
+                   "$": {"n"|"f"|"e": latest TCGplayer price in US cents}}  (finishes with a price only)
     Lists every printing that has price data, so a card name can be turned into its printings and ids.
+    sets.json     (needs --sets) {"<SET>": {"n": set name, "d": release date, "t": set type}} for the sets used above.
     The normalized name is lowercase letters and digits with single spaces ("sol ring"); the first 2 letters/digits
     of it (spaces dropped) pick the file. Double-faced cards are listed under the full name and under each face name.
 
@@ -35,6 +42,9 @@ except ImportError:  # only for small local test files; the workflow always inst
     ijson = None
 
 FIN = {"normal": "n", "foil": "f", "etched": "e"}
+# cards.csv yes/no columns that count as a special treatment, and the tag each one adds
+FLAGS = {"isFullArt": "fullart", "isPromo": "promo", "isOversized": "oversized", "isTextless": "textless",
+         "isAlternative": "alternative"}
 
 
 def kvitems(f, prefix, **kw):
@@ -57,8 +67,9 @@ def open_any(src):
     return gzip.open(path, "rb") if path.endswith(".gz") else open(path, "rb")
 
 
-def load_ids(src):
-    """MTGJSON uuid -> Scryfall id. Accepts cardIdentifiers.csv(.gz) or AllIdentifiers.json(.gz)."""
+def load_ids(src, oracle=None):
+    """MTGJSON uuid -> Scryfall id. Accepts cardIdentifiers.csv(.gz) or AllIdentifiers.json(.gz).
+    If an `oracle` dict is given, it also receives uuid -> Scryfall oracle id (one id shared by all printings of a card)."""
     f = open_any(src)
     ids = {}
     if src.split("?")[0].endswith((".csv", ".csv.gz")):
@@ -66,11 +77,16 @@ def load_ids(src):
             u, s = row.get("uuid"), row.get("scryfallId")
             if u and s:
                 ids[u] = s
+                if oracle is not None and row.get("scryfallOracleId"):
+                    oracle[u] = row["scryfallOracleId"]
     else:
         for u, card in kvitems(f, "data"):
-            s = (card.get("identifiers") or {}).get("scryfallId")
+            ident = card.get("identifiers") or {}
+            s = ident.get("scryfallId")
             if s:
                 ids[u] = s
+                if oracle is not None and ident.get("scryfallOracleId"):
+                    oracle[u] = ident["scryfallOracleId"]
     f.close()
     return ids
 
@@ -88,9 +104,53 @@ def load_names(src):
     for row in reader:
         u = row.get("uuid")
         if u and row.get("name"):
-            out[u] = (row["name"], row.get("setCode") or "", row.get("number") or "", row.get("faceName") or "")
+            out[u] = {
+                "name": row["name"], "set": row.get("setCode") or "", "num": row.get("number") or "",
+                "face": row.get("faceName") or "", "fin": row.get("finishes") or "",
+                "promo": row.get("promoTypes") or "", "frame": row.get("frameEffects") or "",
+                "border": row.get("borderColor") or "", "rar": row.get("rarity") or "",
+                "flags": [t for col, t in FLAGS.items() if row.get(col) == "true"],
+            }
     f.close()
     return out
+
+
+def load_sets(src):
+    """Set code -> {"n": set name, "d": release date, "t": set type} from MTGJSON sets.csv."""
+    f = open_any(src)
+    out = {}
+    for row in csv.DictReader(io.TextIOWrapper(f, encoding="utf-8", newline="")):
+        if row.get("code"):
+            out[row["code"].upper()] = {"n": row.get("name") or "", "d": row.get("releaseDate") or "", "t": row.get("type") or ""}
+    f.close()
+    return out
+
+
+def printing_info(info, oracle_id, prices):
+    """One printing for the name index: finishes (n/f/e/s), treatment tags, rarity letter, latest price per finish."""
+    fins = "".join(c for w, c in (("nonfoil", "n"), ("foil", "f"), ("etched", "e"), ("signed", "s"))
+                   if w in [x.strip() for x in info["fin"].split(",")])
+    tags = []
+    for tok in info["promo"].split(",") + info["frame"].split(","):
+        tok = tok.strip()
+        if tok and tok not in tags:
+            tags.append(tok)
+    if info["border"] and info["border"] != "black" and info["border"] not in tags:
+        tags.append(info["border"])
+    tags += [t for t in info["flags"] if t not in tags]
+    ent = {"s": info["set"].upper(), "c": info["num"], "f": fins}
+    if tags:
+        ent["t"] = tags
+    if info["rar"]:
+        ent["r"] = info["rar"][0]
+    latest = {}
+    for fin, vals in prices.items():
+        last = next((v for v in reversed(vals) if v is not None), None)
+        if last is not None:
+            latest[fin] = last
+    if latest:
+        ent["$"] = latest
+    return ent
 
 
 def inspect_csv(src, cap=60):
@@ -120,27 +180,34 @@ def norm_name(s):
     return " ".join(re.sub(r"[^a-z0-9]+", " ", s.lower()).split())
 
 
-def write_names(root, ids, names, wanted):
-    """Write the name index for scryfall ids in `wanted`. Returns (printings, name files)."""
-    index, seen = {}, set()
-    for uuid, (name, setc, num, face) in names.items():
+def write_names(root, ids, names, recent, oracle):
+    """Write the name index for the scryfall ids in `recent` (id -> {finish: [prices]}).
+    Returns (printings, name files, set codes used)."""
+    index, seen, sets_used = {}, set(), set()
+    for uuid, info in names.items():
         sid = ids.get(uuid)
-        if not sid or sid not in wanted or sid in seen:
+        if not sid or sid not in recent or sid in seen:
             continue
         seen.add(sid)
-        for nm in {name, face} - {""}:
+        sets_used.add(info["set"].upper())
+        pr = printing_info(info, oracle.get(uuid), recent[sid])
+        pr["i"] = sid
+        for nm in {info["name"], info["face"]} - {""}:
             key = norm_name(nm)
             if key:
-                index.setdefault(key, {"n": nm, "p": []})["p"].append([sid, setc.upper(), num])
+                ent = index.setdefault(key, {"n": nm, "p": []})
+                if "o" not in ent and oracle.get(uuid):
+                    ent["o"] = oracle[uuid]
+                ent["p"].append(pr)
     shards = {}
     for key, ent in index.items():
-        ent["p"].sort(key=lambda p: (p[1], p[2].zfill(6), p[0]))
+        ent["p"].sort(key=lambda p: (p["s"], p["c"].zfill(6), p["i"]))
         shards.setdefault(key.replace(" ", "")[:2] or "_", {})[key] = ent
     os.makedirs(root, exist_ok=True)
     for pre, ents in shards.items():
         with open(os.path.join(root, pre + ".json"), "w") as fh:
             json.dump(ents, fh, separators=(",", ":"), sort_keys=True)
-    return len(seen), len(shards)
+    return len(seen), len(shards), sets_used
 
 
 def day_num(s):
@@ -247,6 +314,7 @@ def main():
                     help="more identifier files merged in (e.g. tokenIdentifiers.csv); failures are ignored")
     ap.add_argument("--names", nargs="*", default=[],
                     help="cards.csv / tokens.csv (path or URL) to build the card-name index from; failures are ignored")
+    ap.add_argument("--sets", help="sets.csv (path or URL) for set names and release dates, written to out/sets.json")
     ap.add_argument("--inspect", nargs="*", default=[],
                     help="CSV files (path or URL) to describe in out/columns.json (columns, category values, sample row)")
     ap.add_argument("--out", required=True, help="folder for the recent files + meta.json (the `data` branch)")
@@ -270,9 +338,10 @@ def main():
     rec0 = max(cur * B, d0)  # first day in the recent files
 
     ids = None
+    oracle = {}  # uuid -> scryfall oracle id, used by the name index
     for src in a.identifiers:
         try:
-            ids = load_ids(src)
+            ids = load_ids(src, oracle)
             if ids:
                 print(f"identifiers: {len(ids)} from {src}", flush=True)
                 break
@@ -282,7 +351,7 @@ def main():
         sys.exit("could not load any identifier source")
     for src in a.extra_identifiers:
         try:
-            more = load_ids(src)
+            more = load_ids(src, oracle)
             ids.update(more)
             print(f"identifiers: +{len(more)} from {src}", flush=True)
         except Exception as e:
@@ -358,10 +427,20 @@ def main():
             print(f"names: +{len(more)} from {src}", flush=True)
         except Exception as e:  # the price data must still be published without names
             print(f"names: {src} skipped ({e})", file=sys.stderr, flush=True)
-    name_info = None
+    name_info, set_count = None, 0
     if names:
-        name_info = write_names(os.path.join(out_dir, "n"), ids, names, set(recent))
+        name_info = write_names(os.path.join(out_dir, "n"), ids, names, recent, oracle)
         print(f"names: {name_info[0]} printings in {name_info[1]} files", flush=True)
+        if a.sets:
+            try:
+                all_sets = load_sets(a.sets)
+                used = {c: all_sets[c] for c in sorted(name_info[2]) if c in all_sets}
+                with open(os.path.join(out_dir, "sets.json"), "w") as fh:
+                    json.dump(used, fh, separators=(",", ":"), sort_keys=True)
+                set_count = len(used)
+                print(f"sets: {set_count} of {len(name_info[2])} set codes found in {a.sets}", flush=True)
+            except Exception as e:
+                print(f"sets: {a.sets} skipped ({e})", file=sys.stderr, flush=True)
     epoch = dt.date(1970, 1, 1)
     meta = {
         "latest": (epoch + dt.timedelta(days=max(latest, rec0))).isoformat(),
@@ -370,7 +449,9 @@ def main():
         "cards": cards, "shards": shards,
     }
     if name_info:
-        meta["names"], meta["nameFiles"] = name_info
+        meta["names"], meta["nameFiles"], meta["nameFormat"] = name_info[0], name_info[1], 2
+        if set_count:
+            meta["sets"] = set_count
     if a.archive_base:
         meta["archive"] = a.archive_base if a.archive_base.endswith("/") else a.archive_base + "/"
     with open(os.path.join(out_dir, "meta.json"), "w") as fh:

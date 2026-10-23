@@ -24,8 +24,11 @@ Served from `https://raw.githubusercontent.com/bigpun054/deck-price-data/data/`:
   (`d0`/`days` describe the recent files, `archive` is the base URL of the archive branch)
 - `s/<first 3 characters of the Scryfall id>.json`: `{"d0", "c": {"<scryfall id>": {"n": [...], "f": [...], "e": [...]}}}`
   with prices in US cents for nonfoil, foil and etched, one value per day starting at day number `d0` (days since 1970-01-01), `null` where there is no price.
-- `n/<first 2 letters or digits of the card name>.json`: the card-name index, `{"<normalized name>": {"n": "<card name>", "p": [["<scryfall id>", "<SET>", "<collector number>"], ...]}}`.
-  It lists every printing that has price data, so a name like `sol ring` turns into all its printings and Scryfall ids. The normalized name is lowercase letters and digits with single spaces; the file is picked by its first 2 characters with spaces dropped (`so.json` for `sol ring`). Double-faced cards appear under the full name and under each face name. `meta.json` also has `names` (printings listed) and `nameFiles`.
+- `n/<first 2 letters or digits of the card name>.json`: the card-name index (format 2), `{"<normalized name>": {"n": "<card name>", "o": "<Scryfall oracle id>", "p": [<printing>, ...]}}`.
+  Each printing is `{"i": Scryfall id, "s": SET, "c": collector number, "f": finishes, "t": [special treatments], "r": rarity letter, "$": latest price}`:
+  `f` is letters `n` nonfoil, `f` foil, `e` etched, `s` signed (what the printing exists in); `t` holds MTGJSON's promo types and frame effects as written (for example `surgefoil`, `showcase`), a non-black border colour, and `fullart`, `promo`, `oversized`, `textless`, `alternative` (left out when there is none); `r` is `c`/`u`/`r`/`m`/`s`pecial/`b`onus; `$` is the latest available TCGplayer price in US cents per finish (`n`/`f`/`e`), only for finishes that have a price.
+  It lists every printing that has price data, so a name like `sol ring` turns into all its printings and Scryfall ids.
+- `sets.json`: `{"<SET>": {"n": set name, "d": release date, "t": set type}}` for the sets in the name index. Join it to a printing's `s` for the set name and release date. The normalized name is lowercase letters and digits with single spaces; the file is picked by its first 2 characters with spaces dropped (`so.json` for `sol ring`). Double-faced cards appear under the full name and under each face name. `meta.json` also has `names` (printings listed) and `nameFiles`.
 
 Served from `https://raw.githubusercontent.com/bigpun054/deck-price-data/archive/`:
 - `a/<block>/<first 3 characters of the Scryfall id>.json`: same shape, `d0` = block * 90, 90 values per series.
