@@ -35,6 +35,7 @@ jobs:
             --prices https://mtgjson.com/api/v5/AllPrices.json.gz \
             --identifiers https://mtgjson.com/api/v5/csv/cardIdentifiers.csv https://mtgjson.com/api/v5/AllIdentifiers.json.gz \
             --extra-identifiers https://mtgjson.com/api/v5/csv/tokenIdentifiers.csv \
+            --names https://mtgjson.com/api/v5/csv/cards.csv https://mtgjson.com/api/v5/csv/tokens.csv \
             --out out --days 90 \
             --archive-dir arch --prev prev --keep-days 730 --block-days 90 \
             --archive-base "https://raw.githubusercontent.com/${{ github.repository }}/archive/"

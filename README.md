@@ -24,6 +24,8 @@ Served from `https://raw.githubusercontent.com/bigpun054/deck-price-data/data/`:
   (`d0`/`days` describe the recent files, `archive` is the base URL of the archive branch)
 - `s/<first 3 characters of the Scryfall id>.json`: `{"d0", "c": {"<scryfall id>": {"n": [...], "f": [...], "e": [...]}}}`
   with prices in US cents for nonfoil, foil and etched, one value per day starting at day number `d0` (days since 1970-01-01), `null` where there is no price.
+- `n/<first 2 letters or digits of the card name>.json`: the card-name index, `{"<normalized name>": {"n": "<card name>", "p": [["<scryfall id>", "<SET>", "<collector number>"], ...]}}`.
+  It lists every printing that has price data, so a name like `sol ring` turns into all its printings and Scryfall ids. The normalized name is lowercase letters and digits with single spaces; the file is picked by its first 2 characters with spaces dropped (`so.json` for `sol ring`). Double-faced cards appear under the full name and under each face name. `meta.json` also has `names` (printings listed) and `nameFiles`.
 
 Served from `https://raw.githubusercontent.com/bigpun054/deck-price-data/archive/`:
 - `a/<block>/<first 3 characters of the Scryfall id>.json`: same shape, `d0` = block * 90, 90 values per series.

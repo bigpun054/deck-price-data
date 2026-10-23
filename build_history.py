@@ -15,11 +15,18 @@ Two kinds of output, so the app only re-downloads a small amount each day:
     (block = day number // 90), so a closed block's files never change and the app can keep them forever.
     Blocks older than --keep-days are deleted.
 
+  names (optional, rebuilt every day, in the same `data` branch; needs --names)
+    n/<first 2 letters/digits of the name, "_" if none>.json
+                  {"<normalized name>": {"n": "<card name>", "p": [["<scryfall id>", "<SET>", "<collector number>"], ...]}}
+    Lists every printing that has price data, so a card name can be turned into its printings and ids.
+    The normalized name is lowercase letters and digits with single spaces ("sol ring"); the first 2 letters/digits
+    of it (spaces dropped) pick the file. Double-faced cards are listed under the full name and under each face name.
+
 Day number = whole days since 1970-01-01 (UTC). n = nonfoil, f = foil, e = etched. Prices are US cents (TCGplayer retail).
 MTGJSON only publishes the last 90 days, so an archive block is assembled from the previous run's recent files (--prev)
 plus MTGJSON's window; days neither source has stay null.
 """
-import argparse, csv, datetime as dt, gzip, io, json, os, shutil, sys, tempfile, urllib.request
+import argparse, csv, datetime as dt, gzip, io, json, os, re, shutil, sys, tempfile, urllib.request
 from array import array
 
 try:
@@ -66,6 +73,51 @@ def load_ids(src):
                 ids[u] = s
     f.close()
     return ids
+
+
+def load_names(src):
+    """MTGJSON uuid -> (name, set code, collector number, face name). Needs a cards.csv-style file with those columns."""
+    csv.field_size_limit(1 << 30)  # cards.csv has some very long text fields
+    f = open_any(src)
+    reader = csv.DictReader(io.TextIOWrapper(f, encoding="utf-8", newline=""))
+    need = {"uuid", "name", "setCode", "number"}
+    missing = need - set(reader.fieldnames or [])
+    if missing:
+        raise ValueError(f"missing columns {sorted(missing)}")
+    out = {}
+    for row in reader:
+        u = row.get("uuid")
+        if u and row.get("name"):
+            out[u] = (row["name"], row.get("setCode") or "", row.get("number") or "", row.get("faceName") or "")
+    f.close()
+    return out
+
+
+def norm_name(s):
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", s.lower()).split())
+
+
+def write_names(root, ids, names, wanted):
+    """Write the name index for scryfall ids in `wanted`. Returns (printings, name files)."""
+    index, seen = {}, set()
+    for uuid, (name, setc, num, face) in names.items():
+        sid = ids.get(uuid)
+        if not sid or sid not in wanted or sid in seen:
+            continue
+        seen.add(sid)
+        for nm in {name, face} - {""}:
+            key = norm_name(nm)
+            if key:
+                index.setdefault(key, {"n": nm, "p": []})["p"].append([sid, setc.upper(), num])
+    shards = {}
+    for key, ent in index.items():
+        ent["p"].sort(key=lambda p: (p[1], p[2].zfill(6), p[0]))
+        shards.setdefault(key.replace(" ", "")[:2] or "_", {})[key] = ent
+    os.makedirs(root, exist_ok=True)
+    for pre, ents in shards.items():
+        with open(os.path.join(root, pre + ".json"), "w") as fh:
+            json.dump(ents, fh, separators=(",", ":"), sort_keys=True)
+    return len(seen), len(shards)
 
 
 def day_num(s):
@@ -170,6 +222,8 @@ def main():
                     help="cardIdentifiers.csv(.gz) or AllIdentifiers.json(.gz); several = fallbacks in order")
     ap.add_argument("--extra-identifiers", nargs="*", default=[],
                     help="more identifier files merged in (e.g. tokenIdentifiers.csv); failures are ignored")
+    ap.add_argument("--names", nargs="*", default=[],
+                    help="cards.csv / tokens.csv (path or URL) to build the card-name index from; failures are ignored")
     ap.add_argument("--out", required=True, help="folder for the recent files + meta.json (the `data` branch)")
     ap.add_argument("--days", type=int, default=90, help="how many days of MTGJSON prices to read")
     ap.add_argument("--today", help="YYYY-MM-DD (UTC); default is today")
@@ -261,6 +315,18 @@ def main():
     shutil.rmtree(out_dir, ignore_errors=True)
     os.makedirs(out_dir)
     cards, shards = write_shards(os.path.join(out_dir, "s"), rec0, recent)
+    names = {}
+    for src in a.names:
+        try:
+            more = load_names(src)
+            names.update(more)
+            print(f"names: +{len(more)} from {src}", flush=True)
+        except Exception as e:  # the price data must still be published without names
+            print(f"names: {src} skipped ({e})", file=sys.stderr, flush=True)
+    name_info = None
+    if names:
+        name_info = write_names(os.path.join(out_dir, "n"), ids, names, set(recent))
+        print(f"names: {name_info[0]} printings in {name_info[1]} files", flush=True)
     epoch = dt.date(1970, 1, 1)
     meta = {
         "latest": (epoch + dt.timedelta(days=max(latest, rec0))).isoformat(),
@@ -268,6 +334,8 @@ def main():
         "built": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "cards": cards, "shards": shards,
     }
+    if name_info:
+        meta["names"], meta["nameFiles"] = name_info
     if a.archive_base:
         meta["archive"] = a.archive_base if a.archive_base.endswith("/") else a.archive_base + "/"
     with open(os.path.join(out_dir, "meta.json"), "w") as fh:
