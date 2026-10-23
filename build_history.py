@@ -93,6 +93,29 @@ def load_names(src):
     return out
 
 
+def inspect_csv(src, cap=60):
+    """Describe a CSV for planning: its columns, the values of low-variety columns, and one sample row."""
+    csv.field_size_limit(1 << 30)
+    f = open_any(src)
+    reader = csv.DictReader(io.TextIOWrapper(f, encoding="utf-8", newline=""))
+    cols = list(reader.fieldnames or [])
+    seen = {c: set() for c in cols}
+    sample, rows = None, 0
+    for row in reader:
+        rows += 1
+        if sample is None:
+            sample = {k: (v or "")[:80] for k, v in row.items() if k}
+        for c in cols:
+            s = seen[c]
+            if s is not None:
+                s.add(row.get(c) or "")
+                if len(s) > cap:
+                    seen[c] = None  # too many different values to be a category
+    f.close()
+    return {"rows": rows, "columns": cols, "sample": sample,
+            "values": {c: sorted(s) for c, s in seen.items() if s is not None}}
+
+
 def norm_name(s):
     return " ".join(re.sub(r"[^a-z0-9]+", " ", s.lower()).split())
 
@@ -224,6 +247,8 @@ def main():
                     help="more identifier files merged in (e.g. tokenIdentifiers.csv); failures are ignored")
     ap.add_argument("--names", nargs="*", default=[],
                     help="cards.csv / tokens.csv (path or URL) to build the card-name index from; failures are ignored")
+    ap.add_argument("--inspect", nargs="*", default=[],
+                    help="CSV files (path or URL) to describe in out/columns.json (columns, category values, sample row)")
     ap.add_argument("--out", required=True, help="folder for the recent files + meta.json (the `data` branch)")
     ap.add_argument("--days", type=int, default=90, help="how many days of MTGJSON prices to read")
     ap.add_argument("--today", help="YYYY-MM-DD (UTC); default is today")
@@ -315,6 +340,16 @@ def main():
     shutil.rmtree(out_dir, ignore_errors=True)
     os.makedirs(out_dir)
     cards, shards = write_shards(os.path.join(out_dir, "s"), rec0, recent)
+    if a.inspect:
+        report = {}
+        for src in a.inspect:
+            try:
+                report[os.path.basename(src.split("?")[0])] = inspect_csv(src)
+            except Exception as e:
+                print(f"inspect: {src} skipped ({e})", file=sys.stderr, flush=True)
+        with open(os.path.join(out_dir, "columns.json"), "w") as fh:
+            json.dump(report, fh, indent=1)
+        print(f"inspect: described {sorted(report)}", flush=True)
     names = {}
     for src in a.names:
         try:
