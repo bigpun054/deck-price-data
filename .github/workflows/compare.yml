@@ -1,0 +1,26 @@
+name: Compare with Scryfall
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      REMOTE: https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: |
+          mkdir prev && git -C prev init -q && git -C prev remote add origin "$REMOTE"
+          git -C prev fetch -q --depth=1 origin data && git -C prev checkout -q FETCH_HEAD
+      - run: mkdir -p out && python3 compare_sample.py 2>&1 | tee out/log.txt
+      - name: Save on the compare branch
+        if: always()
+        run: |
+          cd out
+          git init -q -b compare && git add -A
+          git -c user.name="probe-bot" -c user.email="probe-bot@users.noreply.github.com" commit -qm "compare $(date -u +%FT%TZ)"
+          git push -f "$REMOTE" compare
