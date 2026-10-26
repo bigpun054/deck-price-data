@@ -242,17 +242,6 @@ def face_detail(info, multi=False, produced=None):
     return d
 
 
-def face_produced(info, card_wide, multi):
-    """Mana one face can make. MTGJSON gives the whole card's list, so on a multi-faced card only a face whose own text or
-    basic land types make mana keeps it."""
-    if not card_wide or not multi:
-        return card_wide
-    typeline = info.get("type") or ""
-    if "Add " in (info.get("text") or "") or any(t in typeline for t in BASIC_TYPES):
-        return card_wide
-    return []
-
-
 def card_detail(infos):
     """Details of one card from its face rows (side a first). One face: the fields sit at the top; several: a "fc" list."""
     i0 = infos[0]
@@ -278,7 +267,9 @@ def card_detail(infos):
         d["gc"] = 1
     if multi:
         d["nm"] = i0["name"]
-        d["fc"] = [face_detail(i, True, face_produced(i, wide, True)) for i in infos]
+        d["fc"] = [face_detail(i, True) for i in infos]
+        if wide:
+            d["pm"] = wide
     else:
         d.update(face_detail(i0, False, wide))
     return d
@@ -294,6 +285,7 @@ def write_names(root, ids, names, recent, oracle, tcg=None, tokrel=None, ts_by_s
         if sid and sid in recent:
             bysid.setdefault(sid, []).append((uuid, info))
     index, sets_used = {}, set()
+    built = []
     for sid, rows in bysid.items():
         rows.sort(key=lambda r: r[1].get("side") or "")  # side a first
         uuid, info = rows[0]
@@ -307,26 +299,34 @@ def write_names(root, ids, names, recent, oracle, tcg=None, tokrel=None, ts_by_s
         prod = next((tcg[u] for u, _ in rows if tcg.get(u)), None)
         if prod:
             pr["u"] = prod
-        if info.get("flavor"):
-            pr["fn"] = info["flavor"]
-        keys = {info["name"]} | {i["face"] for i in infos if i["face"]}
+        if len((info.get("flavor") or "").strip()) > 1:
+            pr["fn"] = info["flavor"].strip()
+        faces = [i["face"] for i in infos if i["face"] and i["face"] != info["name"]]
         ts = ts_by_set.get(info["set"].upper())
         if ts:
             nums = []
-            for nm in sorted(keys, key=lambda k: (k != info["name"], k)):
+            for nm in [info["name"]] + faces:
                 for n_ in tokrel.get((ts, nm), []):
                     if n_ not in nums:
                         nums.append(n_)
             if nums:
                 pr["k"] = nums
-        detail = card_detail(infos)
-        for nm in keys:
-            key = norm_name(nm)
-            if key:
-                ent = index.setdefault(key, {"n": nm, "p": []})
-                if "o" not in ent and oracle.get(uuid):
-                    ent["o"] = oracle[uuid]
-                ent.setdefault("d", detail)
+        built.append((oracle.get(uuid), info["name"], faces, card_detail(infos), pr))
+    # Full card names first, then face names: a face name never joins a different card that already owns that key
+    for faces_pass in (False, True):
+        for orc, full, faces, detail, pr in built:
+            for nm in (faces if faces_pass else [full]):
+                key = norm_name(nm)
+                if not key:
+                    continue
+                ent = index.get(key)
+                if ent is None:
+                    ent = index[key] = {"n": nm, "p": []}
+                    if orc:
+                        ent["o"] = orc
+                    ent["d"] = detail
+                elif faces_pass and ent.get("o") != orc:
+                    continue  # a different card owns this name
                 ent["p"].append(pr)
     shards = {}
     for key, ent in index.items():
@@ -373,7 +373,7 @@ def write_tokens(root, ids, tok_names, recent, tcg=None):
         if ci:
             tok["ci"] = ci
         if multi:
-            tok["fc"] = [face_detail(i, True, split_list(i.get("pm"))) for i in infos]
+            tok["fc"] = [face_detail(i, True) for i in infos]
         else:
             tok.update(face_detail(info, False, split_list(info.get("pm"))))
         prod = next((tcg[u] for u, _ in rows if tcg.get(u)), None)
