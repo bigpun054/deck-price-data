@@ -31,15 +31,18 @@ jobs:
           git -C prev fetch -q --depth=1 origin data && git -C prev checkout -q FETCH_HEAD || echo "no data branch yet"
       - name: Build shards from MTGJSON
         run: |
+          set -o pipefail
           python3 build_history.py \
             --prices https://mtgjson.com/api/v5/AllPrices.json.gz \
             --identifiers https://mtgjson.com/api/v5/csv/cardIdentifiers.csv https://mtgjson.com/api/v5/AllIdentifiers.json.gz \
             --extra-identifiers https://mtgjson.com/api/v5/csv/tokenIdentifiers.csv \
-            --names https://mtgjson.com/api/v5/csv/cards.csv https://mtgjson.com/api/v5/csv/tokens.csv \
+            --names https://mtgjson.com/api/v5/csv/cards.csv \
+            --tokens https://mtgjson.com/api/v5/csv/tokens.csv \
             --sets https://mtgjson.com/api/v5/csv/sets.csv \
             --out out --days 90 \
             --archive-dir arch --prev prev --keep-days 730 --block-days 90 \
-            --archive-base "https://raw.githubusercontent.com/${{ github.repository }}/archive/"
+            --archive-base "https://raw.githubusercontent.com/${{ github.repository }}/archive/" 2>&1 | tee build.log
+          mkdir -p out && cp build.log out/build.log
       - name: Publish finished blocks to the archive branch (normal commit, only when a block closed or expired)
         run: |
           cd arch

@@ -29,6 +29,18 @@ Two kinds of output, so the app only re-downloads a small amount each day:
     The normalized name is lowercase letters and digits with single spaces ("sol ring"); the first 2 letters/digits
     of it (spaces dropped) pick the file. Double-faced cards are listed under the full name and under each face name.
 
+  cards (inside the same name files, format 3)
+    each name entry also carries "d", the card's details (rules text, type, mana cost, colours ...), and each printing may carry
+    "e" (frame effects), "u" (TCGplayer product id), "fn" (flavour name) and "k" (numbers of the tokens it makes, see below).
+      d = {"ty": type line, "tx": rules text, "mc": mana cost, "mv": mana value, "co": [colours], "ci": [colour identity],
+           "kw": [keywords], "pw": power, "to": toughness, "lo": loyalty, "de": defense, "pm": [mana it can produce],
+           "ly": layout (left out for "normal"), "gc": 1 for a Game Changer}
+      a card with several faces carries "nm" (the full name) and "fc" = [{"n": face name, "mc", "mv", "ty", "tx", "pw", "to", "lo", "de", "co", "pm"}, ...]
+      instead of the per-face fields, and keeps "mv", "ci", "kw", "ly", "gc" for the whole card.
+  tokens (needs --tokens)
+    t/<token set code>.json   {"<token number>": {"i": scryfall id, "n": name, "ty", "tx", "pw", "to", "co", "kw", "ly", "u", "f", "$", "fc"}}
+    A printing's "k" lists the numbers of the tokens (in its set's token set, from sets.json "ts") that its card makes.
+
 Day number = whole days since 1970-01-01 (UTC). n = nonfoil, f = foil, e = etched. Prices are US cents (TCGplayer retail).
 MTGJSON only publishes the last 90 days, so an archive block is assembled from the previous run's recent files (--prev)
 plus MTGJSON's window; days neither source has stay null.
@@ -67,9 +79,25 @@ def open_any(src):
     return gzip.open(path, "rb") if path.endswith(".gz") else open(path, "rb")
 
 
-def load_ids(src, oracle=None):
+
+def split_list(s):
+    """"R, U" -> ["R", "U"]"""
+    return [x.strip() for x in (s or "").split(",") if x.strip()]
+
+
+def num(s):
+    """"3.0" -> 3, "0.5" -> 0.5, "" -> None"""
+    try:
+        v = float(s)
+    except (TypeError, ValueError):
+        return None
+    return int(v) if v == int(v) else v
+
+
+def load_ids(src, oracle=None, tcg=None):
     """MTGJSON uuid -> Scryfall id. Accepts cardIdentifiers.csv(.gz) or AllIdentifiers.json(.gz).
-    If an `oracle` dict is given, it also receives uuid -> Scryfall oracle id (one id shared by all printings of a card)."""
+    If an `oracle` dict is given, it also receives uuid -> Scryfall oracle id (one id shared by all printings of a card).
+    If a `tcg` dict is given, it receives uuid -> TCGplayer product id."""
     f = open_any(src)
     ids = {}
     if src.split("?")[0].endswith((".csv", ".csv.gz")):
@@ -79,6 +107,8 @@ def load_ids(src, oracle=None):
                 ids[u] = s
                 if oracle is not None and row.get("scryfallOracleId"):
                     oracle[u] = row["scryfallOracleId"]
+                if tcg is not None and row.get("tcgplayerProductId"):
+                    tcg[u] = row["tcgplayerProductId"]
     else:
         for u, card in kvitems(f, "data"):
             ident = card.get("identifiers") or {}
@@ -87,6 +117,8 @@ def load_ids(src, oracle=None):
                 ids[u] = s
                 if oracle is not None and ident.get("scryfallOracleId"):
                     oracle[u] = ident["scryfallOracleId"]
+                if tcg is not None and ident.get("tcgplayerProductId"):
+                    tcg[u] = ident["tcgplayerProductId"]
     f.close()
     return ids
 
@@ -110,18 +142,27 @@ def load_names(src):
                 "promo": row.get("promoTypes") or "", "frame": row.get("frameEffects") or "",
                 "border": row.get("borderColor") or "", "rar": row.get("rarity") or "",
                 "flags": [t for col, t in FLAGS.items() if row.get(col) == "true"],
+                "side": row.get("side") or "", "layout": row.get("layout") or "", "text": row.get("text") or "",
+                "type": row.get("type") or "", "mc": row.get("manaCost") or "", "mv": row.get("manaValue") or "",
+                "fmv": row.get("faceManaValue") or "", "colors": row.get("colors") or "", "ci": row.get("colorIdentity") or "",
+                "kw": row.get("keywords") or "", "pw": row.get("power") or "", "to": row.get("toughness") or "",
+                "lo": row.get("loyalty") or "", "de": row.get("defense") or "", "pm": row.get("producedMana") or "",
+                "gc": row.get("isGameChanger") == "true", "flavor": row.get("flavorName") or "",
+                "rel": row.get("relatedCards") or "",
             }
     f.close()
     return out
 
 
 def load_sets(src):
-    """Set code -> {"n": set name, "d": release date, "t": set type} from MTGJSON sets.csv."""
+    """Set code -> {"n": set name, "d": release date, "t": set type, "ts": token set code} from MTGJSON sets.csv."""
     f = open_any(src)
     out = {}
     for row in csv.DictReader(io.TextIOWrapper(f, encoding="utf-8", newline="")):
         if row.get("code"):
             out[row["code"].upper()] = {"n": row.get("name") or "", "d": row.get("releaseDate") or "", "t": row.get("type") or ""}
+            if row.get("tokenSetCode"):
+                out[row["code"].upper()]["ts"] = row["tokenSetCode"].upper()
     f.close()
     return out
 
@@ -180,24 +221,112 @@ def norm_name(s):
     return " ".join(re.sub(r"[^a-z0-9]+", " ", s.lower()).split())
 
 
-def write_names(root, ids, names, recent, oracle):
-    """Write the name index for the scryfall ids in `recent` (id -> {finish: [prices]}).
-    Returns (printings, name files, set codes used)."""
-    index, seen, sets_used = {}, set(), set()
+BASIC_TYPES = {"Plains": "W", "Island": "U", "Swamp": "B", "Mountain": "R", "Forest": "G"}
+
+
+def face_detail(info, multi=False, produced=None):
+    """One face's (or a whole single-faced card's) details, empty values left out."""
+    d = {}
+    if multi:
+        d["n"] = info["face"] or info["name"]
+    for key, col in (("mc", "mc"), ("ty", "type"), ("tx", "text"), ("pw", "pw"), ("to", "to"), ("lo", "lo"), ("de", "de")):
+        if info.get(col):
+            d[key] = info[col]
+    if multi and num(info.get("fmv")) is not None:
+        d["mv"] = num(info["fmv"])
+    co = split_list(info.get("colors"))
+    if co:
+        d["co"] = co
+    if produced:
+        d["pm"] = produced
+    return d
+
+
+def face_produced(info, card_wide, multi):
+    """Mana one face can make. MTGJSON gives the whole card's list, so on a multi-faced card only a face whose own text or
+    basic land types make mana keeps it."""
+    if not card_wide or not multi:
+        return card_wide
+    typeline = info.get("type") or ""
+    if "Add " in (info.get("text") or "") or any(t in typeline for t in BASIC_TYPES):
+        return card_wide
+    return []
+
+
+def card_detail(infos):
+    """Details of one card from its face rows (side a first). One face: the fields sit at the top; several: a "fc" list."""
+    i0 = infos[0]
+    multi = len(infos) > 1
+    wide = split_list(i0.get("pm"))
+    d = {}
+    if i0.get("layout") and i0["layout"] != "normal":
+        d["ly"] = i0["layout"]
+    mv = num(i0.get("mv"))
+    if mv is not None:
+        d["mv"] = mv
+    ci = split_list(i0.get("ci"))
+    if ci:
+        d["ci"] = ci
+    kw = []
+    for i in infos:
+        for k in split_list(i.get("kw")):
+            if k not in kw:
+                kw.append(k)
+    if kw:
+        d["kw"] = kw
+    if any(i.get("gc") for i in infos):
+        d["gc"] = 1
+    if multi:
+        d["nm"] = i0["name"]
+        d["fc"] = [face_detail(i, True, face_produced(i, wide, True)) for i in infos]
+    else:
+        d.update(face_detail(i0, False, wide))
+    return d
+
+
+def write_names(root, ids, names, recent, oracle, tcg=None, tokrel=None, ts_by_set=None):
+    """Write the name index for the scryfall ids in `recent` (id -> {finish: [prices]}), with each card's details and
+    each printing's extras. Returns (printings, name files, set codes used, names with details)."""
+    tcg, tokrel, ts_by_set = tcg or {}, tokrel or {}, ts_by_set or {}
+    bysid = {}
     for uuid, info in names.items():
         sid = ids.get(uuid)
-        if not sid or sid not in recent or sid in seen:
-            continue
-        seen.add(sid)
+        if sid and sid in recent:
+            bysid.setdefault(sid, []).append((uuid, info))
+    index, sets_used = {}, set()
+    for sid, rows in bysid.items():
+        rows.sort(key=lambda r: r[1].get("side") or "")  # side a first
+        uuid, info = rows[0]
+        infos = [r[1] for r in rows]
         sets_used.add(info["set"].upper())
         pr = printing_info(info, oracle.get(uuid), recent[sid])
         pr["i"] = sid
-        for nm in {info["name"], info["face"]} - {""}:
+        fe = split_list(info["frame"])
+        if fe:
+            pr["e"] = fe
+        prod = next((tcg[u] for u, _ in rows if tcg.get(u)), None)
+        if prod:
+            pr["u"] = prod
+        if info.get("flavor"):
+            pr["fn"] = info["flavor"]
+        keys = {info["name"]} | {i["face"] for i in infos if i["face"]}
+        ts = ts_by_set.get(info["set"].upper())
+        if ts:
+            nums = []
+            for nm in sorted(keys, key=lambda k: (k != info["name"], k)):
+                for n_ in tokrel.get((ts, nm), []):
+                    if n_ not in nums:
+                        nums.append(n_)
+            if nums:
+                pr["k"] = nums
+        detail = card_detail(infos)
+        for nm in keys:
             key = norm_name(nm)
             if key:
                 ent = index.setdefault(key, {"n": nm, "p": []})
                 if "o" not in ent and oracle.get(uuid):
                     ent["o"] = oracle[uuid]
+                ent.setdefault("d", detail)
                 ent["p"].append(pr)
     shards = {}
     for key, ent in index.items():
@@ -207,7 +336,76 @@ def write_names(root, ids, names, recent, oracle):
     for pre, ents in shards.items():
         with open(os.path.join(root, pre + ".json"), "w") as fh:
             json.dump(ents, fh, separators=(",", ":"), sort_keys=True)
-    return len(seen), len(shards), sets_used
+    return len(bysid), len(shards), sets_used, len(index)
+
+
+def fin_letters(info):
+    have = [x.strip() for x in info["fin"].split(",")]
+    return "".join(c for w, c in (("nonfoil", "n"), ("foil", "f"), ("etched", "e"), ("signed", "s")) if w in have)
+
+
+def write_tokens(root, ids, tok_names, recent, tcg=None):
+    """Write t/<token set code>.json = {"<token number>": token} for every token printing with a Scryfall id.
+    Returns (tokens, files, rel) where rel maps (token set code, card name) -> [token numbers that card makes]."""
+    tcg = tcg or {}
+    bysid = {}
+    for uuid, info in tok_names.items():
+        sid = ids.get(uuid)
+        if sid and info.get("layout") != "art_series":
+            bysid.setdefault(sid, []).append((uuid, info))
+    sets, rel, count = {}, {}, 0
+    for sid, rows in bysid.items():
+        rows.sort(key=lambda r: r[1].get("side") or "")
+        uuid, info = rows[0]
+        infos = [r[1] for r in rows]
+        multi = len(infos) > 1
+        tok = {"i": sid, "n": info["name"], "f": fin_letters(info)}
+        if info.get("layout") and info["layout"] != "token":
+            tok["ly"] = info["layout"]
+        kw = []
+        for i in infos:
+            for k in split_list(i.get("kw")):
+                if k not in kw:
+                    kw.append(k)
+        if kw:
+            tok["kw"] = kw
+        ci = split_list(info.get("ci"))
+        if ci:
+            tok["ci"] = ci
+        if multi:
+            tok["fc"] = [face_detail(i, True, split_list(i.get("pm"))) for i in infos]
+        else:
+            tok.update(face_detail(info, False, split_list(info.get("pm"))))
+        prod = next((tcg[u] for u, _ in rows if tcg.get(u)), None)
+        if prod:
+            tok["u"] = prod
+        latest = {}
+        for fin, vals in (recent.get(sid) or {}).items():
+            last = next((v for v in reversed(vals) if v is not None), None)
+            if last is not None:
+                latest[fin] = last
+        if latest:
+            tok["$"] = latest
+        tset = re.sub(r"[^A-Za-z0-9_-]", "_", info["set"].upper())
+        number = info["num"] or "_"
+        bucket = sets.setdefault(tset, {})
+        if number in bucket and bucket[number]["i"] != sid:
+            number = number + "#" + sid[:4]
+        bucket[number] = tok
+        count += 1
+        try:
+            related = json.loads(info.get("rel") or "{}").get("reverseRelated") or []
+        except ValueError:
+            related = []
+        for nm in related:
+            lst = rel.setdefault((info["set"].upper(), nm), [])
+            if number not in lst:
+                lst.append(number)
+    os.makedirs(root, exist_ok=True)
+    for tset, bucket in sets.items():
+        with open(os.path.join(root, tset + ".json"), "w") as fh:
+            json.dump(bucket, fh, separators=(",", ":"), sort_keys=True)
+    return count, len(sets), rel
 
 
 def day_num(s):
@@ -314,6 +512,8 @@ def main():
                     help="more identifier files merged in (e.g. tokenIdentifiers.csv); failures are ignored")
     ap.add_argument("--names", nargs="*", default=[],
                     help="cards.csv / tokens.csv (path or URL) to build the card-name index from; failures are ignored")
+    ap.add_argument("--tokens", nargs="*", default=[],
+                    help="tokens.csv (path or URL): written to t/<token set>.json and linked from cards; failures are ignored")
     ap.add_argument("--sets", help="sets.csv (path or URL) for set names and release dates, written to out/sets.json")
     ap.add_argument("--inspect", nargs="*", default=[],
                     help="CSV files (path or URL) to describe in out/columns.json (columns, category values, sample row)")
@@ -339,9 +539,10 @@ def main():
 
     ids = None
     oracle = {}  # uuid -> scryfall oracle id, used by the name index
+    tcg = {}     # uuid -> TCGplayer product id
     for src in a.identifiers:
         try:
-            ids = load_ids(src, oracle)
+            ids = load_ids(src, oracle, tcg)
             if ids:
                 print(f"identifiers: {len(ids)} from {src}", flush=True)
                 break
@@ -351,7 +552,7 @@ def main():
         sys.exit("could not load any identifier source")
     for src in a.extra_identifiers:
         try:
-            more = load_ids(src, oracle)
+            more = load_ids(src, oracle, tcg)
             ids.update(more)
             print(f"identifiers: +{len(more)} from {src}", flush=True)
         except Exception as e:
@@ -419,28 +620,53 @@ def main():
         with open(os.path.join(out_dir, "columns.json"), "w") as fh:
             json.dump(report, fh, indent=1)
         print(f"inspect: described {sorted(report)}", flush=True)
-    names = {}
+    # Card details, token files and the name index. None of this may stop prices from being published.
+    names, tok_names = {}, {}
     for src in a.names:
         try:
             more = load_names(src)
             names.update(more)
             print(f"names: +{len(more)} from {src}", flush=True)
-        except Exception as e:  # the price data must still be published without names
+        except Exception as e:
             print(f"names: {src} skipped ({e})", file=sys.stderr, flush=True)
-    name_info, set_count = None, 0
-    if names:
-        name_info = write_names(os.path.join(out_dir, "n"), ids, names, recent, oracle)
-        print(f"names: {name_info[0]} printings in {name_info[1]} files", flush=True)
-        if a.sets:
-            try:
-                all_sets = load_sets(a.sets)
-                used = {c: all_sets[c] for c in sorted(name_info[2]) if c in all_sets}
+    for src in a.tokens:
+        try:
+            more = load_names(src)
+            tok_names.update(more)
+            print(f"tokens: +{len(more)} from {src}", flush=True)
+        except Exception as e:
+            print(f"tokens: {src} skipped ({e})", file=sys.stderr, flush=True)
+    all_sets = {}
+    if a.sets:
+        try:
+            all_sets = load_sets(a.sets)
+        except Exception as e:
+            print(f"sets: {a.sets} skipped ({e})", file=sys.stderr, flush=True)
+    name_info, set_count, tok_info, tokrel = None, 0, None, {}
+    try:
+        if tok_names:
+            tok_info = write_tokens(os.path.join(out_dir, "t"), ids, tok_names, recent, tcg)
+            tokrel = tok_info[2]
+            print(f"tokens: {tok_info[0]} tokens in {tok_info[1]} files", flush=True)
+    except Exception as e:
+        print(f"tokens: write failed ({e!r})", file=sys.stderr, flush=True)
+        shutil.rmtree(os.path.join(out_dir, "t"), ignore_errors=True)
+        tok_info = None
+    try:
+        if names:
+            ts_by_set = {c: v["ts"] for c, v in all_sets.items() if v.get("ts")}
+            name_info = write_names(os.path.join(out_dir, "n"), ids, names, recent, oracle, tcg, tokrel, ts_by_set)
+            print(f"names: {name_info[0]} printings in {name_info[1]} files, {name_info[3]} names", flush=True)
+            used = {c: all_sets[c] for c in sorted(name_info[2]) if c in all_sets}
+            if used:
                 with open(os.path.join(out_dir, "sets.json"), "w") as fh:
                     json.dump(used, fh, separators=(",", ":"), sort_keys=True)
                 set_count = len(used)
-                print(f"sets: {set_count} of {len(name_info[2])} set codes found in {a.sets}", flush=True)
-            except Exception as e:
-                print(f"sets: {a.sets} skipped ({e})", file=sys.stderr, flush=True)
+                print(f"sets: {set_count} of {len(name_info[2])} set codes found", flush=True)
+    except Exception as e:
+        print(f"names: write failed ({e!r})", file=sys.stderr, flush=True)
+        shutil.rmtree(os.path.join(out_dir, "n"), ignore_errors=True)
+        name_info = None
     epoch = dt.date(1970, 1, 1)
     meta = {
         "latest": (epoch + dt.timedelta(days=max(latest, rec0))).isoformat(),
@@ -449,9 +675,11 @@ def main():
         "cards": cards, "shards": shards,
     }
     if name_info:
-        meta["names"], meta["nameFiles"], meta["nameFormat"] = name_info[0], name_info[1], 2
+        meta["names"], meta["nameFiles"], meta["nameFormat"] = name_info[0], name_info[1], 3
         if set_count:
             meta["sets"] = set_count
+    if tok_info:
+        meta["tokens"], meta["tokenSets"] = tok_info[0], tok_info[1]
     if a.archive_base:
         meta["archive"] = a.archive_base if a.archive_base.endswith("/") else a.archive_base + "/"
     with open(os.path.join(out_dir, "meta.json"), "w") as fh:
