@@ -45,7 +45,7 @@ Day number = whole days since 1970-01-01 (UTC). n = nonfoil, f = foil, e = etche
 MTGJSON only publishes the last 90 days, so an archive block is assembled from the previous run's recent files (--prev)
 plus MTGJSON's window; days neither source has stay null.
 """
-import argparse, csv, datetime as dt, gzip, io, json, os, re, shutil, sys, tempfile, urllib.request
+import argparse, csv, hashlib, datetime as dt, gzip, io, json, os, re, shutil, sys, tempfile, urllib.request
 from array import array
 
 try:
@@ -217,6 +217,9 @@ def inspect_csv(src, cap=60):
             "values": {c: sorted(s) for c, s in seen.items() if s is not None}}
 
 
+NAMES_V = ""
+
+
 def norm_name(s):
     return " ".join(re.sub(r"[^a-z0-9]+", " ", s.lower()).split())
 
@@ -329,10 +332,22 @@ def write_names(root, ids, names, recent, oracle, tcg=None, tokrel=None, ts_by_s
                     continue  # a different card owns this name
                 ent["p"].append(pr)
     shards = {}
+    names_list = []
     for key, ent in index.items():
         ent["p"].sort(key=lambda p: (p["s"], p["c"].zfill(6), p["i"]))
+        d = ent.get("d") or {}
+        face0 = (d.get("fc") or [{}])[0]
+        names_list.append([ent["n"], ent.get("o", ""), ent["p"][0]["i"], d.get("mc") or face0.get("mc") or "",
+                           d.get("ty") or face0.get("ty") or "", "".join(d.get("ci") or [])])
         shards.setdefault(key.replace(" ", "")[:2] or "_", {})[key] = ent
     os.makedirs(root, exist_ok=True)
+    # names.json: one short row per card name [name, oracle id, a printing id for the picture, mana cost, type line, colour identity]
+    names_list.sort(key=lambda r: norm_name(r[0]))
+    blob = json.dumps(names_list, separators=(",", ":"), ensure_ascii=False)
+    with open(os.path.join(os.path.dirname(os.path.abspath(root)), "names.json"), "w", encoding="utf-8") as fh:
+        fh.write(blob)
+    global NAMES_V
+    NAMES_V = hashlib.sha1(blob.encode("utf-8")).hexdigest()[:10]   # changes only when the list itself changes
     for pre, ents in shards.items():
         with open(os.path.join(root, pre + ".json"), "w") as fh:
             json.dump(ents, fh, separators=(",", ":"), sort_keys=True)
@@ -666,6 +681,8 @@ def main():
     except Exception as e:
         print(f"names: write failed ({e!r})", file=sys.stderr, flush=True)
         shutil.rmtree(os.path.join(out_dir, "n"), ignore_errors=True)
+        try: os.remove(os.path.join(out_dir, "names.json"))
+        except OSError: pass
         name_info = None
     epoch = dt.date(1970, 1, 1)
     meta = {
@@ -676,6 +693,8 @@ def main():
     }
     if name_info:
         meta["names"], meta["nameFiles"], meta["nameFormat"] = name_info[0], name_info[1], 3
+        if NAMES_V:
+            meta["namesV"] = NAMES_V
         if set_count:
             meta["sets"] = set_count
     if tok_info:
