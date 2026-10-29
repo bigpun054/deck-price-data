@@ -45,7 +45,7 @@ Day number = whole days since 1970-01-01 (UTC). n = nonfoil, f = foil, e = etche
 MTGJSON only publishes the last 90 days, so an archive block is assembled from the previous run's recent files (--prev)
 plus MTGJSON's window; days neither source has stay null.
 """
-import argparse, csv, hashlib, datetime as dt, gzip, io, json, os, re, shutil, sys, tempfile, urllib.request
+import argparse, csv, hashlib, datetime as dt, gzip, io, json, os, re, shutil, sys, tempfile, time, urllib.request
 from array import array
 
 try:
@@ -73,11 +73,35 @@ def open_any(src):
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix="-" + suffix)
         req = urllib.request.Request(src, headers={"User-Agent": "deck-price-data/1.0"})
         with urllib.request.urlopen(req, timeout=600) as r:
-            shutil.copyfileobj(r, tmp, 1 << 20)
+            got = 0
+            while True:
+                chunk = r.read(1 << 20)
+                if not chunk:
+                    break
+                tmp.write(chunk)
+                got += len(chunk)
+            want = r.headers.get("Content-Length")
+            if want and want.isdigit() and got != int(want):   # the connection closed early; never build from half a file
+                tmp.close()
+                os.unlink(tmp.name)
+                raise OSError(f"download cut off: got {got} of {want} bytes from {src}")
         tmp.close()
         path = tmp.name
     return gzip.open(path, "rb") if path.endswith(".gz") else open(path, "rb")
 
+
+
+def with_retries(label, fn, retries, wait):
+    """Run fn(); if it fails (a download cut off, a server hiccup), wait `wait` seconds and try again, up to `retries` more times.
+    The last failure is raised, so callers keep their own "skip this step" handling."""
+    for attempt in range(retries + 1):
+        try:
+            return fn()
+        except Exception as e:
+            if attempt >= retries:
+                raise
+            print(f"{label}: attempt {attempt + 1} of {retries + 1} failed ({e!r}); trying again in {wait} s", file=sys.stderr, flush=True)
+            time.sleep(wait)
 
 
 def split_list(s):
@@ -572,6 +596,8 @@ def main():
     ap.add_argument("--block-days", type=int, default=90, help="archive block length; must not exceed --days")
     ap.add_argument("--keep-days", type=int, default=730, help="how long the archive keeps history (default 2 years)")
     ap.add_argument("--archive-dir", help="folder holding the archive branch checkout; finished blocks are added under a/")
+    ap.add_argument("--retries", type=int, default=0, help="how many more times to try the names, tokens and sets downloads when one fails (default 0)")
+    ap.add_argument("--retry-wait", type=int, default=600, help="seconds to wait between those tries (default 600 = 10 minutes)")
     ap.add_argument("--prev", help="folder with the previously published recent files (the old `data` branch)")
     ap.add_argument("--archive-base", help="public URL of the archive branch, written into meta.json for the app")
     a = ap.parse_args()
@@ -673,14 +699,14 @@ def main():
     names, tok_names = {}, {}
     for src in a.names:
         try:
-            more = load_names(src)
+            more = with_retries(f"names: {src}", lambda: load_names(src), a.retries, a.retry_wait)
             names.update(more)
             print(f"names: +{len(more)} from {src}", flush=True)
         except Exception as e:
             print(f"names: {src} skipped ({e})", file=sys.stderr, flush=True)
     for src in a.tokens:
         try:
-            more = load_names(src)
+            more = with_retries(f"tokens: {src}", lambda: load_names(src), a.retries, a.retry_wait)
             tok_names.update(more)
             print(f"tokens: +{len(more)} from {src}", flush=True)
         except Exception as e:
@@ -688,7 +714,7 @@ def main():
     all_sets = {}
     if a.sets:
         try:
-            all_sets = load_sets(a.sets)
+            all_sets = with_retries(f"sets: {a.sets}", lambda: load_sets(a.sets), a.retries, a.retry_wait)
         except Exception as e:
             print(f"sets: {a.sets} skipped ({e})", file=sys.stderr, flush=True)
     name_info, set_count, tok_info, tokrel = None, 0, None, {}

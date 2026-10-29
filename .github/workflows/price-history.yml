@@ -12,7 +12,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 120   # room for the download retries (up to 3 x 10 minutes of waiting)
     env:
       REMOTE: https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}
     steps:
@@ -39,6 +39,7 @@ jobs:
             --names https://mtgjson.com/api/v5/csv/cards.csv \
             --tokens https://mtgjson.com/api/v5/csv/tokens.csv \
             --sets https://mtgjson.com/api/v5/csv/sets.csv \
+            --retries 3 --retry-wait 600 \
             --out out --days 90 \
             --archive-dir arch --prev prev --keep-days 730 --block-days 90 \
             --archive-base "https://raw.githubusercontent.com/${{ github.repository }}/archive/" 2>&1 | tee build.log
