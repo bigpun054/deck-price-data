@@ -456,6 +456,40 @@ def read_prev(prev_dir):
         return None
 
 
+def carry_names_forward(prev_dir, out_dir):
+    """Today's name index could not be built (MTGJSON download cut off, bad file...): reuse the one published last time, so card search
+    keeps working on slightly older names instead of finding nothing. Copies names.json, n/ and sets.json from the previous run's files into
+    out_dir and returns the meta fields that describe them, or None when there is no usable previous index (then nothing is copied)."""
+    if not prev_dir:
+        return None
+    try:
+        with open(os.path.join(prev_dir, "meta.json")) as fh:
+            pm = json.load(fh)
+        if int(pm.get("nameFormat") or 0) < 3 or not pm.get("namesV"):
+            return None
+        src_n, src_list, src_sets = os.path.join(prev_dir, "n"), os.path.join(prev_dir, "names.json"), os.path.join(prev_dir, "sets.json")
+        if not os.path.isdir(src_n) or not os.path.isfile(src_list):
+            return None
+        with open(src_list, encoding="utf-8") as fh:
+            rows = json.load(fh)
+        if not isinstance(rows, list) or not rows:
+            return None
+        shutil.copytree(src_n, os.path.join(out_dir, "n"))
+        shutil.copy2(src_list, os.path.join(out_dir, "names.json"))
+        if os.path.isfile(src_sets):
+            shutil.copy2(src_sets, os.path.join(out_dir, "sets.json"))
+        kept = {k: pm[k] for k in ("names", "nameFiles", "nameFormat", "namesV", "sets") if k in pm}
+        kept["namesFrom"] = pm.get("namesFrom") or pm.get("built") or ""   # when this list was really built; stays the same while it is reused
+        return kept
+    except Exception as e:
+        print(f"names: previous index not reusable ({e!r})", file=sys.stderr, flush=True)
+        shutil.rmtree(os.path.join(out_dir, "n"), ignore_errors=True)
+        for f in ("names.json", "sets.json"):
+            try: os.remove(os.path.join(out_dir, f))
+            except OSError: pass
+        return None
+
+
 def make_block(k, B, series, d0, n, prev):
     """Assemble block k (days k*B .. k*B+B-1) as {sid: {fin: [cents|None]*B}}, or {} if no source has a price in it."""
     bs = k * B
@@ -684,6 +718,13 @@ def main():
         try: os.remove(os.path.join(out_dir, "names.json"))
         except OSError: pass
         name_info = None
+    kept_names = None
+    if not name_info:
+        kept_names = carry_names_forward(a.prev, out_dir)
+        if kept_names:
+            print(f"names: today's list could not be built, kept the list from {kept_names.get('namesFrom') or 'the last run'} ({kept_names.get('names', '?')} printings)", flush=True)
+        else:
+            print("names: today's list could not be built and there is no earlier list to keep; card search will have no name index", file=sys.stderr, flush=True)
     epoch = dt.date(1970, 1, 1)
     meta = {
         "latest": (epoch + dt.timedelta(days=max(latest, rec0))).isoformat(),
@@ -697,6 +738,8 @@ def main():
             meta["namesV"] = NAMES_V
         if set_count:
             meta["sets"] = set_count
+    if kept_names:
+        meta.update(kept_names)
     if tok_info:
         meta["tokens"], meta["tokenSets"] = tok_info[0], tok_info[1]
     if a.archive_base:
