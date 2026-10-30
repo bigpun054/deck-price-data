@@ -24,7 +24,8 @@ Two kinds of output, so the app only re-downloads a small amount each day:
                          a non-black border colour, and fullart / promo / oversized / textless / alternative],  (omitted if none)
                    "r": rarity letter c/u/r/m/s(pecial)/b(onus),
                    "$": {"n"|"f"|"e": latest TCGplayer price in US cents}}  (finishes with a price only)
-    Lists every printing that has price data, so a card name can be turned into its printings and ids.
+    Lists every paper printing (and any other printing that has price data), so a card name can be turned into all its printings
+    and ids; a printing with no price simply has no "$".
     sets.json     (needs --sets) {"<SET>": {"n": set name, "d": release date, "t": set type}} for the sets used above.
     The normalized name is lowercase letters and digits with single spaces ("sol ring"); the first 2 letters/digits
     of it (spaces dropped) pick the file. Double-faced cards are listed under the full name and under each face name.
@@ -173,6 +174,9 @@ def load_names(src):
                 "lo": row.get("loyalty") or "", "de": row.get("defense") or "", "pm": row.get("producedMana") or "",
                 "gc": row.get("isGameChanger") == "true", "flavor": row.get("flavorName") or "",
                 "rel": row.get("relatedCards") or "",
+                # a printing you can own on paper (not MTGO / Arena only); files without the availability column count as paper
+                "paper": ("paper" in [x.strip() for x in (row.get("availability") or "").split(",")]) if "availability" in row
+                         else row.get("isOnlineOnly") != "true",
             }
     f.close()
     return out
@@ -303,14 +307,16 @@ def card_detail(infos):
 
 
 def write_names(root, ids, names, recent, oracle, tcg=None, tokrel=None, ts_by_set=None):
-    """Write the name index for the scryfall ids in `recent` (id -> {finish: [prices]}), with each card's details and
-    each printing's extras. Returns (printings, name files, set codes used, names with details)."""
+    """Write the name index: every paper printing (with its latest price when `recent`, id -> {finish: [prices]}, has one),
+    plus any printing that has a price, with each card's details and each printing's extras.
+    Returns (printings, name files, set codes used, names with details, printings without a price)."""
     tcg, tokrel, ts_by_set = tcg or {}, tokrel or {}, ts_by_set or {}
     bysid = {}
     for uuid, info in names.items():
         sid = ids.get(uuid)
-        if sid and sid in recent:
+        if sid and (sid in recent or info.get("paper", True)):
             bysid.setdefault(sid, []).append((uuid, info))
+    unpriced = 0
     index, sets_used = {}, set()
     built = []
     for sid, rows in bysid.items():
@@ -318,7 +324,9 @@ def write_names(root, ids, names, recent, oracle, tcg=None, tokrel=None, ts_by_s
         uuid, info = rows[0]
         infos = [r[1] for r in rows]
         sets_used.add(info["set"].upper())
-        pr = printing_info(info, oracle.get(uuid), recent[sid])
+        pr = printing_info(info, oracle.get(uuid), recent.get(sid, {}))
+        if "$" not in pr:
+            unpriced += 1
         pr["i"] = sid
         fe = split_list(info["frame"])
         if fe:
@@ -375,7 +383,7 @@ def write_names(root, ids, names, recent, oracle, tcg=None, tokrel=None, ts_by_s
     for pre, ents in shards.items():
         with open(os.path.join(root, pre + ".json"), "w") as fh:
             json.dump(ents, fh, separators=(",", ":"), sort_keys=True)
-    return len(bysid), len(shards), sets_used, len(index)
+    return len(bysid), len(shards), sets_used, len(index), unpriced
 
 
 def fin_letters(info):
@@ -502,7 +510,7 @@ def carry_names_forward(prev_dir, out_dir):
         shutil.copy2(src_list, os.path.join(out_dir, "names.json"))
         if os.path.isfile(src_sets):
             shutil.copy2(src_sets, os.path.join(out_dir, "sets.json"))
-        kept = {k: pm[k] for k in ("names", "nameFiles", "nameFormat", "namesV", "sets") if k in pm}
+        kept = {k: pm[k] for k in ("names", "nameFiles", "nameFormat", "namesV", "sets", "unpriced") if k in pm}
         kept["namesFrom"] = pm.get("namesFrom") or pm.get("built") or ""   # when this list was really built; stays the same while it is reused
         return kept
     except Exception as e:
@@ -731,7 +739,7 @@ def main():
         if names:
             ts_by_set = {c: v["ts"] for c, v in all_sets.items() if v.get("ts")}
             name_info = write_names(os.path.join(out_dir, "n"), ids, names, recent, oracle, tcg, tokrel, ts_by_set)
-            print(f"names: {name_info[0]} printings in {name_info[1]} files, {name_info[3]} names", flush=True)
+            print(f"names: {name_info[0]} printings in {name_info[1]} files, {name_info[3]} names, {name_info[4]} printings without a price", flush=True)
             used = {c: all_sets[c] for c in sorted(name_info[2]) if c in all_sets}
             if used:
                 with open(os.path.join(out_dir, "sets.json"), "w") as fh:
@@ -760,6 +768,7 @@ def main():
     }
     if name_info:
         meta["names"], meta["nameFiles"], meta["nameFormat"] = name_info[0], name_info[1], 3
+        meta["unpriced"] = name_info[4]   # paper printings listed without a price (shown as "No price" in the app)
         if NAMES_V:
             meta["namesV"] = NAMES_V
         if set_count:
