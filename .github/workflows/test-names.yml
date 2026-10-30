@@ -1,0 +1,76 @@
+# One-off test run (branch names-test only): builds the name index with every paper printing, publishes nothing, and commits a
+# report (file sizes, how many printings have no price, and how often Scryfall has a price for those) to this branch.
+name: Test name index
+on:
+  push:
+    branches: [names-test]
+permissions:
+  contents: write
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install ijson
+      - name: Build (names only matter here)
+        run: |
+          python3 build_history.py \
+            --prices https://mtgjson.com/api/v5/AllPrices.json.gz \
+            --identifiers https://mtgjson.com/api/v5/csv/cardIdentifiers.csv https://mtgjson.com/api/v5/AllIdentifiers.json.gz \
+            --extra-identifiers https://mtgjson.com/api/v5/csv/tokenIdentifiers.csv \
+            --names https://mtgjson.com/api/v5/csv/cards.csv \
+            --tokens https://mtgjson.com/api/v5/csv/tokens.csv \
+            --sets https://mtgjson.com/api/v5/csv/sets.csv \
+            --retries 1 --retry-wait 120 --out out --days 90 2>&1 | tail -20 | tee build.log
+      - name: Measure and check Scryfall
+        run: |
+          git fetch -q --depth=1 origin data
+          mkdir live && git --work-tree=live checkout FETCH_HEAD -- n names.json meta.json
+          python3 - <<'PY'
+          import json, os, random, time, urllib.request
+          def size(p):
+              if os.path.isfile(p): return os.path.getsize(p)
+              return sum(os.path.getsize(os.path.join(r, f)) for r, _, fs in os.walk(p) for f in fs)
+          rep = {"new": {"n_bytes": size("out/n"), "names_json_bytes": size("out/names.json"), "n_files": len(os.listdir("out/n"))},
+                 "live": {"n_bytes": size("live/n"), "names_json_bytes": size("live/names.json"), "n_files": len(os.listdir("live/n"))}}
+          nm, lm = json.load(open("out/meta.json")), json.load(open("live/meta.json"))
+          rep["new"].update(printings=nm.get("names"), unpriced=nm.get("unpriced")); rep["live"].update(printings=lm.get("names"))
+          rep["new"]["names"] = len(json.load(open("out/names.json"))); rep["live"]["names"] = len(json.load(open("live/names.json")))
+          unp, bysets, files = [], {}, {}
+          for f in os.listdir("out/n"):
+              d = json.load(open("out/n/" + f)); files[f] = (size("out/n/" + f), size("live/n/" + f) if os.path.exists("live/n/" + f) else 0)
+              for k, e in d.items():
+                  for p in e["p"]:
+                      if "$" not in p:
+                          unp.append((p["i"], p["s"], e["n"])); bysets[p["s"]] = bysets.get(p["s"], 0) + 1
+          rep["biggest_name_files"] = sorted(([f, a, b] for f, (a, b) in files.items()), key=lambda x: -x[1])[:5]
+          rep["unpriced_top_sets"] = sorted(bysets.items(), key=lambda x: -x[1])[:15]
+          uniq = list({u[0]: u for u in unp}.values())
+          random.seed(1); sample = random.sample(uniq, min(1500, len(uniq)))
+          old = [u for u in uniq if u[1] in ("LEA", "LEB", "2ED", "ARN", "ATQ", "LEG")]
+          def scry(group):
+              got, priced, eg = 0, 0, []
+              for i in range(0, len(group), 75):
+                  body = json.dumps({"identifiers": [{"id": g[0]} for g in group[i:i + 75]]}).encode()
+                  req = urllib.request.Request("https://api.scryfall.com/cards/collection", body, {"Content-Type": "application/json", "Accept": "application/json", "User-Agent": "deck-shelf-names-test/1.0"})
+                  for c in json.load(urllib.request.urlopen(req, timeout=60)).get("data", []):
+                      got += 1; pr = c.get("prices") or {}
+                      if any(pr.get(k) for k in ("usd", "usd_foil", "usd_etched")):
+                          priced += 1
+                          if len(eg) < 12: eg.append([c["name"], c["set"].upper(), pr.get("usd") or pr.get("usd_foil") or pr.get("usd_etched")])
+                  time.sleep(0.15)
+              return {"asked": len(group), "found": got, "with_price": priced, "examples": eg}
+          rep["scryfall_random_sample"] = scry(sample)
+          rep["scryfall_old_sets"] = scry(old)
+          json.dump(rep, open("report.json", "w"), indent=1)
+          print(json.dumps(rep, indent=1)[:3000])
+          PY
+      - name: Save the report on this branch
+        if: always()
+        run: |
+          cp build.log build-log.txt 2>/dev/null || true
+          git add report.json build-log.txt 2>/dev/null || true
+          git -c user.name=test-bot -c user.email=test-bot@users.noreply.github.com commit -qm "Test report" && git push origin HEAD:names-test || echo nothing to save
