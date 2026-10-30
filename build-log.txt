@@ -1,0 +1,13 @@
+identifiers: 115657 from https://mtgjson.com/api/v5/csv/cardIdentifiers.csv
+identifiers: +9390 from https://mtgjson.com/api/v5/csv/tokenIdentifiers.csv
+  read 20000 cards
+  read 40000 cards
+  read 60000 cards
+  read 80000 cards
+  read 100000 cards
+names: +115657 from https://mtgjson.com/api/v5/csv/cards.csv
+tokens: +9390 from https://mtgjson.com/api/v5/csv/tokens.csv
+tokens: 3712 tokens in 298 files
+names: 104041 printings in 345 files, 36259 names, 6113 printings without a price
+sets: 704 of 704 set codes found
+done {"latest": "2026-10-29", "d0": 20700, "days": 57, "block": 90, "arch": [], "keep": 730, "built": "2026-10-30T03:30:20Z", "cards": 99711, "shards": 4096, "names": 104041, "nameFiles": 345, "nameFormat": 3, "unpriced": 6113, "namesV": "9baa28d8a9", "sets": 704, "tokens": 3712, "tokenSets": 298}

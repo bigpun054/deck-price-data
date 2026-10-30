@@ -1,0 +1,200 @@
+{
+ "new": {
+  "n_bytes": 28861511,
+  "names_json_bytes": 4926365,
+  "n_files": 345,
+  "printings": 104041,
+  "unpriced": 6113,
+  "names": 36259
+ },
+ "live": {
+  "n_bytes": 27716596,
+  "names_json_bytes": 4811835,
+  "n_files": 330,
+  "printings": 97928,
+  "names": 35458
+ },
+ "biggest_name_files": [
+  [
+   "th.json",
+   914027,
+   817809
+  ],
+  [
+   "co.json",
+   524887,
+   503875
+  ],
+  [
+   "ma.json",
+   520757,
+   500308
+  ],
+  [
+   "re.json",
+   497543,
+   483283
+  ],
+  [
+   "st.json",
+   483029,
+   470272
+  ]
+ ],
+ "unpriced_top_sets": [
+  [
+   "PSAL",
+   730
+  ],
+  [
+   "PLST",
+   624
+  ],
+  [
+   "TRK",
+   414
+  ],
+  [
+   "UNK",
+   388
+  ],
+  [
+   "TRC",
+   379
+  ],
+  [
+   "4BB",
+   378
+  ],
+  [
+   "SLZ",
+   362
+  ],
+  [
+   "FBB",
+   307
+  ],
+  [
+   "SUM",
+   298
+  ],
+  [
+   "30A",
+   288
+  ],
+  [
+   "PS11",
+   224
+  ],
+  [
+   "BCHR",
+   125
+  ],
+  [
+   "REN",
+   122
+  ],
+  [
+   "LEA",
+   91
+  ],
+  [
+   "SLD",
+   86
+  ]
+ ],
+ "scryfall_random_sample": {
+  "asked": 1500,
+  "found": 1500,
+  "with_price": 209,
+  "examples": [
+   [
+    "Wheel of Fortune",
+    "FBB",
+    "650.00"
+   ],
+   [
+    "Orb of Dragonkind",
+    "PLG21",
+    "17.16"
+   ],
+   [
+    "Reverse Polarity",
+    "FBB",
+    "1.99"
+   ],
+   [
+    "Blue Elemental Blast",
+    "SUM",
+    "0.10"
+   ],
+   [
+    "Grapeshot Catapult",
+    "4BB",
+    "0.30"
+   ],
+   [
+    "Circle of Protection: Black",
+    "FBB",
+    "2.00"
+   ],
+   [
+    "Mysterious Egg",
+    "IKO",
+    "0.26"
+   ],
+   [
+    "Black Mana Battery",
+    "4BB",
+    "2.96"
+   ],
+   [
+    "Wall of Wood",
+    "4BB",
+    "0.21"
+   ],
+   [
+    "Disintegrate",
+    "4BB",
+    "4.50"
+   ],
+   [
+    "Ashiok, Dream Render",
+    "WAR",
+    "2.72"
+   ],
+   [
+    "Red Ward",
+    "FBB",
+    "3.00"
+   ]
+  ]
+ },
+ "scryfall_old_sets": {
+  "asked": 152,
+  "found": 152,
+  "with_price": 4,
+  "examples": [
+   [
+    "Wheel of Fortune",
+    "LEA",
+    "3850.00"
+   ],
+   [
+    "Badlands",
+    "LEB",
+    "2499.99"
+   ],
+   [
+    "Mox Jet",
+    "LEB",
+    "4000.00"
+   ],
+   [
+    "Savannah Lions",
+    "LEB",
+    "799.99"
+   ]
+  ]
+ }
+}
