@@ -4,6 +4,9 @@ on:
   schedule:
     - cron: "37 9 * * *"   # daily, after MTGJSON's morning build
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["build_combos.py", "build_history.py", ".github/workflows/price-history.yml"]   # a pipeline change is published right away
 permissions:
   contents: write
 concurrency:
@@ -45,6 +48,9 @@ jobs:
             --archive-dir arch --prev prev --keep-days 730 --block-days 90 \
             --archive-base "https://raw.githubusercontent.com/${{ github.repository }}/archive/" 2>&1 | tee build.log
           mkdir -p out && cp build.log out/build.log
+      - name: Build combo data from Commander Spellbook's daily export (keeps yesterday's combo files if it fails)
+        continue-on-error: true
+        run: python3 build_combos.py --out out --prev prev 2>&1 | tee -a out/build.log
       - name: Publish finished blocks to the archive branch (normal commit, only when a block closed or expired)
         run: |
           cd arch

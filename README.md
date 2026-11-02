@@ -35,6 +35,19 @@ Served from `https://raw.githubusercontent.com/bigpun054/deck-price-data/data/`:
 - `names.json`: the card-name list for the app's search, one row per card name: `[name, Scryfall oracle id, one printing id for the picture, mana cost, type line, colour identity letters]`. `meta.json` has `namesV`, a stamp that changes only when the list changes, so the app downloads it rarely.
 - `sets.json`: `{"<SET>": {"n": set name, "d": release date, "t": set type}}` for the sets in the name index. Join it to a printing's `s` for the set name and release date. The normalized name is lowercase letters and digits with single spaces; the file is picked by its first 2 characters with spaces dropped (`so.json` for `sol ring`). Double-faced cards appear under the full name and under each face name. `meta.json` also has `names` (printings listed) and `nameFiles`.
 
+- `combo/`: combo data from [Commander Spellbook](https://commanderspellbook.com/) (built by `build_combos.py`, see its docstring for every field).
+  Spellbook's daily export (`variants.json.gz`, about 118,000 combos) is downloaded once a day (skipped when its ETag or timestamp hasn't changed;
+  yesterday's files are kept if anything fails) and stored whole, with each card, template, feature and recipe written once:
+  - `combo/meta.json`: export timestamp and version, counts, `index` (a hash per index file), `names` (hash of names.json), `formats`.
+  - `combo/i/<same 2-character prefix as n/>.json`: per normalized card name, its Spellbook card id `c`, the compact record of every combo it is in
+    `v` (`[id, piece card ids, [[template id, count]], feature ids, mana value needed, bracket tag, colour identity, must-be-commander piece indexes]`)
+    and the templates it fits `t`. The app downloads only the files for cards the player owns, and again only when a file's hash changes.
+  - `combo/v/<first 3 hex of sha1(combo id)>.json`: every combo with all of Spellbook's fields (steps, prerequisites, zones, prices, legality...),
+    read when a combo is opened.
+  - `combo/names.json`, `cards.json`, `templates.json`, `features.json`, `recipes.json`, `aliases.json`, `matches.json` (template search results).
+  Template slots ("any free sac outlet"): a template's Scryfall query is run on Scryfall's search API, a listed-cards template is read from
+  Spellbook's `/cards/?matched_by=`; results are reused for 7 days (`--match-days`). Combo data from Commander Spellbook, credited in the app.
+
 Served from `https://raw.githubusercontent.com/bigpun054/deck-price-data/archive/`:
 - `a/<block>/<first 3 characters of the Scryfall id>.json`: same shape, `d0` = block * 90, 90 values per series.
 
@@ -43,6 +56,7 @@ Served from `https://raw.githubusercontent.com/bigpun054/deck-price-data/archive
 The workflow reads these MTGJSON files each day: `AllPrices.json.gz` (prices), `cardIdentifiers.csv` / `AllIdentifiers.json.gz` and `tokenIdentifiers.csv` (Scryfall ids),
 `cards.csv` (names, text and EDHREC rank), `tokens.csv`, `sets.csv`, and `cardLegalities.csv` (`--legalities`, for the Commander ban flag).
 The names, tokens, sets and legalities downloads are retried and may fail without stopping the prices from being published.
+The combo step reads `https://json.commanderspellbook.com/variants.json.gz` plus Scryfall and Spellbook searches for template slots; it can also fail without stopping the prices.
 
 ## Settings
 
