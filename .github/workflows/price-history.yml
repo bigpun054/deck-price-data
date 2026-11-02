@@ -39,6 +39,7 @@ jobs:
             --names https://mtgjson.com/api/v5/csv/cards.csv \
             --tokens https://mtgjson.com/api/v5/csv/tokens.csv \
             --sets https://mtgjson.com/api/v5/csv/sets.csv \
+            --legalities https://mtgjson.com/api/v5/csv/cardLegalities.csv \
             --retries 3 --retry-wait 600 \
             --out out --days 90 \
             --archive-dir arch --prev prev --keep-days 730 --block-days 90 \

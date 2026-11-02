@@ -35,9 +35,17 @@ Two kinds of output, so the app only re-downloads a small amount each day:
     "e" (frame effects), "u" (TCGplayer product id), "fn" (flavour name) and "k" (numbers of the tokens it makes, see below).
       d = {"ty": type line, "tx": rules text, "mc": mana cost, "mv": mana value, "co": [colours], "ci": [colour identity],
            "kw": [keywords], "pw": power, "to": toughness, "lo": loyalty, "de": defense, "pm": [mana it can produce],
-           "ly": layout (left out for "normal"), "gc": 1 for a Game Changer}
+           "ly": layout (left out for "normal"), "gc": 1 for a Game Changer, "bn": 1 if banned in Commander (needs --legalities),
+           "rk": EDHREC rank, 1 = most played (left out when EDHREC has none)}
       a card with several faces carries "nm" (the full name) and "fc" = [{"n": face name, "mc", "mv", "ty", "tx", "pw", "to", "lo", "de", "co", "pm"}, ...]
       instead of the per-face fields, and keeps "mv", "ci", "kw", "ly", "gc" for the whole card.
+  budget swaps (built with the names)
+    w/<same 2-letter prefix as n/>.json
+                  {"<normalized name>": [[swap name, cheapest price in cents, mana value, colour identity "GW", "p"|"g", EDHREC rank|0], ...]}
+      For each card whose cheapest printing costs 50 cents or more and that does a job (ramp, draw, removal, board wipe, protection,
+      recursion, win condition, tutor, counterspell): up to 8 cards that do the same jobs, cost half as much or less and fit inside its
+      colour identity, best match first. "p" = popular pick (EDHREC top 10,000), "g" = hidden gem (a close match outside that list).
+      The app picks from these with the player's own price and mana limits.
   tokens (needs --tokens)
     t/<token set code>.json   {"<token number>": {"i": scryfall id, "n": name, "ty", "tx", "pw", "to", "co", "kw", "ly", "u", "f", "$", "fc"}}
     A printing's "k" lists the numbers of the tokens (in its set's token set, from sets.json "ts") that its card makes.
@@ -173,6 +181,7 @@ def load_names(src):
                 "kw": row.get("keywords") or "", "pw": row.get("power") or "", "to": row.get("toughness") or "",
                 "lo": row.get("loyalty") or "", "de": row.get("defense") or "", "pm": row.get("producedMana") or "",
                 "gc": row.get("isGameChanger") == "true", "flavor": row.get("flavorName") or "",
+                "rk": row.get("edhrecRank") or "",
                 "rel": row.get("relatedCards") or "",
                 # a printing you can own on paper (not MTGO / Arena only); files without the availability column count as paper
                 "paper": ("paper" in [x.strip() for x in (row.get("availability") or "").split(",")]) if "availability" in row
@@ -180,6 +189,128 @@ def load_names(src):
             }
     f.close()
     return out
+
+
+def load_legal(src):
+    """MTGJSON uuid -> True for printings banned in Commander, from cardLegalities.csv (columns uuid, commander, ...)."""
+    f = open_any(src)
+    reader = csv.DictReader(io.TextIOWrapper(f, encoding="utf-8", newline=""))
+    if "commander" not in (reader.fieldnames or []) or "uuid" not in (reader.fieldnames or []):
+        raise ValueError("missing uuid / commander columns")
+    out = {row["uuid"]: True for row in reader if (row.get("commander") or "").strip().lower() == "banned"}
+    f.close()
+    return out
+
+
+# ---------- Card jobs (the same rules the app's deck analysis uses), for the budget swap file ----------
+TYPE_ORDER = ["Land", "Creature", "Planeswalker", "Battle", "Instant", "Sorcery", "Artifact", "Enchantment"]
+RE_LANDSEARCH = re.compile(r"search your library for[^.]*\b(?:basic )?(?:land|forest|plains|island|swamp|mountain)(?: or (?:forest|plains|island|swamp|mountain))? cards?[^.]*onto the battlefield"
+                           r"|put (?:a|up to \w+) land cards? from your hand onto the battlefield|play an additional land", re.I)
+RE_TREASURE = re.compile(r"create[^.]*treasure tokens?", re.I)
+RE_DRAW = re.compile(r"\bdraws? (?:an? |one |two |three |four |five |x |that many |\d+ |cards? equal)", re.I)
+RE_REMOVAL = re.compile(r"(?:destroy|exile)s? (?:up to \w+ )?(?:another )?target (?!player|opponent|land)|deals? (?:x|\d+) damage to (?:target|any target|up to)"
+                        r"|\bfights? (?:up to \w+ )?(?:another )?target|target creature gets -[\dx]+/-[\dx]+|return target (?:nonland )?(?:creature|permanent)[^.]* to (?:its owner's|their owners') hands?", re.I)
+RE_WIPE = re.compile(r"sacrifices? all (?:other )?(?:colored |nonland |non\w+ )?(?:creatures|permanents|artifacts|enchantments)|(?:destroy|exile) all (?:other )?(?:non\w+ )?(?:creatures|permanents|artifacts|enchantments)"
+                     r"|each creature gets -|creatures (?:your opponents control |you don't control )?get -[\dx]+/-[\dx]+|deals? (?:x|\d+) damage to each (?:other )?creature|return all (?:non\w+ )?(?:creatures|permanents)[^.]*hands?", re.I)
+RE_COUNTER = re.compile(r"\bcounter target\b", re.I)
+RE_PROTECT = re.compile(r"(?:gains?|has|have) [^.]*\b(?:hexproof|indestructible|shroud|protection from)|\bphases? out\b", re.I)
+RE_TUTOR = re.compile(r"search your library for (?:a|an|up to \w+) (?!basic|land|forest|plains|island|swamp|mountain)[^.]*card", re.I)
+RE_RECUR = re.compile(r"from your graveyard to (?:your hand|the battlefield)|return target [^.]*card from your graveyard", re.I)
+RE_WIN = re.compile(r"you win the game|loses? the game|creatures you control (?:get \+|gain trample and get)|\binfect\b", re.I)
+JOBS = (("ramp", None), ("draw", RE_DRAW), ("removal", RE_REMOVAL), ("wipe", RE_WIPE), ("protect", RE_PROTECT),
+        ("recursion", RE_RECUR), ("win", RE_WIN), ("tutor", RE_TUTOR), ("counter", RE_COUNTER))
+STOP = set("a an the of to and or your you its it this that each any target card cards creature creatures until end turn may with from for into on in at as is are be can't".split())
+
+
+def card_jobs(d):
+    """The jobs a card (its name-index details) does, using the app's rules: [] for lands and cards with no job."""
+    faces = d.get("fc") or [d]
+    ty = faces[0].get("ty") or d.get("ty") or ""
+    primary = next((t for t in TYPE_ORDER if re.search(r"\b" + t + r"\b", ty)), "Other")
+    if primary == "Land":
+        return [], primary
+    text = re.sub(r"\([^)]*\)", "", "\n".join(f.get("tx") or "" for f in faces))
+    inst = primary in ("Instant", "Sorcery")
+    mine = " ".join(sn for sn in re.split(r"(?<=[.\n])", text) if not re.search(r"its controller|that player|opponent", sn, re.I))
+    out = []
+    for job, rx in JOBS:
+        if job == "ramp":
+            if (d.get("pm") and not inst) or RE_LANDSEARCH.search(text) or RE_TREASURE.search(mine):
+                out.append(job)
+        elif rx.search(mine if job in ("protect", "recursion", "draw") else text):
+            out.append(job)
+    return out, primary
+
+
+def text_words(d, name):
+    faces = d.get("fc") or [d]
+    text = "\n".join(f.get("tx") or "" for f in faces).lower().replace(name.lower(), "~")
+    text = re.sub(r"\([^)]*\)", "", text)
+    w = [x for x in re.findall(r"[a-z+/0-9{}~-]+", text) if x not in STOP]
+    return set(w) | {a + " " + b for a, b in zip(w, w[1:])}
+
+
+def write_swaps(root, index_shards, popular=10000, keep=8):
+    """Budget swaps from the name index (see the docstring). Returns (cards with swaps, files)."""
+    cards = []
+    for ents in index_shards.values():
+        for key, ent in ents.items():
+            d = ent.get("d") or {}
+            if d.get("bn") or not ent.get("p"):
+                continue
+            prices = [min(v for v in p["$"].values()) for p in ent["p"] if p.get("$")]
+            if not prices:
+                continue
+            jobs, primary = card_jobs(d)
+            if not jobs:
+                continue
+            cards.append({"k": key, "n": ent["n"], "c": min(prices), "mv": d.get("mv") or 0, "ci": "".join(d.get("ci") or []),
+                          "jobs": set(jobs), "ty": "Spell" if primary in ("Instant", "Sorcery") else primary,
+                          "kw": set(d.get("kw") or []), "rk": d.get("rk") or 0, "d": d})
+    by_job = {}
+    for c in cards:
+        for j in c["jobs"]:
+            by_job.setdefault(j, []).append(c)
+    for lst in by_job.values():
+        lst.sort(key=lambda c: c["c"])
+    words = {}
+    shards = {}
+    count = 0
+    for c in cards:
+        if c["c"] < 50:
+            continue
+        # rarest job first keeps the pool small; every one of the card's jobs must be matched
+        pool = min((by_job[j] for j in c["jobs"]), key=len)
+        cap, ci = c["c"] * 0.5, set(c["ci"])
+        cand = []
+        for o in pool:
+            if o["c"] > cap:
+                break
+            if o is c or not c["jobs"] <= o["jobs"] or not set(o["ci"]) <= ci or o["n"] == c["n"]:
+                continue
+            cand.append(o)
+        if not cand:
+            continue
+        wc = words.get(c["k"]) or words.setdefault(c["k"], text_words(c["d"], c["n"]))
+        scored = []
+        for o in cand:
+            wo = words.get(o["k"]) or words.setdefault(o["k"], text_words(o["d"], o["n"]))
+            jac = len(wc & wo) / max(1, len(wc | wo))
+            kw = len(c["kw"] & o["kw"]) / max(1, len(c["kw"] | o["kw"])) if (c["kw"] or o["kw"]) else 0
+            sc = jac * 3 + kw + (1 if o["ty"] == c["ty"] else 0) - 0.1 * max(0, o["mv"] - c["mv"]) + (0.5 if 0 < o["rk"] <= popular else 0)
+            scored.append((sc, o))
+        scored.sort(key=lambda x: -x[0])
+        pop = [o for _, o in scored if 0 < o["rk"] <= popular][:keep // 2]
+        gem = [o for _, o in scored if not (0 < o["rk"] <= popular)][:keep // 2]
+        best = sorted(pop + gem, key=lambda o: -next(s for s, x in scored if x is o))[:keep]
+        shards.setdefault(c["k"].replace(" ", "")[:2] or "_", {})[c["k"]] = [
+            [o["n"], o["c"], o["mv"], o["ci"], "p" if 0 < o["rk"] <= popular else "g", o["rk"]] for o in best]
+        count += 1
+    os.makedirs(root, exist_ok=True)
+    for pre, ents in shards.items():
+        with open(os.path.join(root, pre + ".json"), "w") as fh:
+            json.dump(ents, fh, separators=(",", ":"), sort_keys=True)
+    return count, len(shards)
 
 
 def load_sets(src):
@@ -296,6 +427,11 @@ def card_detail(infos):
         d["kw"] = kw
     if any(i.get("gc") for i in infos):
         d["gc"] = 1
+    if any(i.get("bn") for i in infos):
+        d["bn"] = 1   # banned in Commander
+    ranks = [r for r in (num(i.get("rk")) for i in infos) if r]
+    if ranks:
+        d["rk"] = int(min(ranks))   # EDHREC rank (1 = most played)
     if multi:
         d["nm"] = i0["name"]
         d["fc"] = [face_detail(i, True) for i in infos]
@@ -383,7 +519,12 @@ def write_names(root, ids, names, recent, oracle, tcg=None, tokrel=None, ts_by_s
     for pre, ents in shards.items():
         with open(os.path.join(root, pre + ".json"), "w") as fh:
             json.dump(ents, fh, separators=(",", ":"), sort_keys=True)
+    global LAST_SHARDS
+    LAST_SHARDS = shards
     return len(bysid), len(shards), sets_used, len(index), unpriced
+
+
+LAST_SHARDS = None
 
 
 def fin_letters(info):
@@ -596,6 +737,7 @@ def main():
     ap.add_argument("--tokens", nargs="*", default=[],
                     help="tokens.csv (path or URL): written to t/<token set>.json and linked from cards; failures are ignored")
     ap.add_argument("--sets", help="sets.csv (path or URL) for set names and release dates, written to out/sets.json")
+    ap.add_argument("--legalities", help="cardLegalities.csv (path or URL): marks cards banned in Commander; failures are ignored")
     ap.add_argument("--inspect", nargs="*", default=[],
                     help="CSV files (path or URL) to describe in out/columns.json (columns, category values, sample row)")
     ap.add_argument("--out", required=True, help="folder for the recent files + meta.json (the `data` branch)")
@@ -719,6 +861,15 @@ def main():
             print(f"tokens: +{len(more)} from {src}", flush=True)
         except Exception as e:
             print(f"tokens: {src} skipped ({e})", file=sys.stderr, flush=True)
+    if a.legalities and names:
+        try:
+            banned = with_retries(f"legalities: {a.legalities}", lambda: load_legal(a.legalities), a.retries, a.retry_wait)
+            for u in banned:
+                if u in names:
+                    names[u]["bn"] = True
+            print(f"legalities: {len(banned)} printings banned in Commander", flush=True)
+        except Exception as e:
+            print(f"legalities: {a.legalities} skipped ({e})", file=sys.stderr, flush=True)
     all_sets = {}
     if a.sets:
         try:
@@ -752,6 +903,16 @@ def main():
         try: os.remove(os.path.join(out_dir, "names.json"))
         except OSError: pass
         name_info = None
+    swap_info = None
+    try:
+        if name_info and LAST_SHARDS:
+            t0 = time.time()
+            swap_info = write_swaps(os.path.join(out_dir, "w"), LAST_SHARDS)
+            print(f"swaps: {swap_info[0]} cards with budget swaps in {swap_info[1]} files ({time.time() - t0:.0f}s)", flush=True)
+    except Exception as e:
+        print(f"swaps: write failed ({e!r})", file=sys.stderr, flush=True)
+        shutil.rmtree(os.path.join(out_dir, "w"), ignore_errors=True)
+        swap_info = None
     kept_names = None
     if not name_info:
         kept_names = carry_names_forward(a.prev, out_dir)
@@ -777,6 +938,8 @@ def main():
         meta.update(kept_names)
     if tok_info:
         meta["tokens"], meta["tokenSets"] = tok_info[0], tok_info[1]
+    if swap_info:
+        meta["swaps"], meta["swapFiles"] = swap_info[0], swap_info[1]
     if a.archive_base:
         meta["archive"] = a.archive_base if a.archive_base.endswith("/") else a.archive_base + "/"
     with open(os.path.join(out_dir, "meta.json"), "w") as fh:
