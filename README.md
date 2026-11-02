@@ -29,12 +29,20 @@ Served from `https://raw.githubusercontent.com/bigpun054/deck-price-data/data/`:
   `f` is letters `n` nonfoil, `f` foil, `e` etched, `s` signed (what the printing exists in); `t` holds MTGJSON's promo types and frame effects as written (for example `surgefoil`, `showcase`), a non-black border colour, and `fullart`, `promo`, `oversized`, `textless`, `alternative` (left out when there is none); `r` is `c`/`u`/`r`/`m`/`s`pecial/`b`onus; `$` is the latest available TCGplayer price in US cents per finish (`n`/`f`/`e`), only for finishes that have a price.
   It lists every paper printing (not MTGO / Arena-only ones), priced or not, plus any other printing that has a price, so a name like `sol ring` turns into all its printings and Scryfall ids. A printing with no TCGplayer price has no `$`; the app then asks Scryfall for that same printing's price. `meta.json` `unpriced` counts the printings listed without a price.
 - `t/<token set code>.json`: `{"<token number>": {"i": Scryfall id, "n", "ty", "tx", "pw", "to", "co", "ci", "kw", "ly", "u", "f", "$", "fc": faces}}` for every token printing, from MTGJSON tokens.csv. A card's printing lists the numbers in its token set (`sets.json` `ts`) under `k`.
-- `n/` card details `d`: `{"ty" type line, "tx" text, "mc" mana cost, "mv" mana value, "co" colors, "ci" color identity, "kw" keywords, "pw"/"to"/"lo"/"de" power/toughness/loyalty/defense, "pm" produced mana, "ly" layout (omitted when normal), "gc" game changer, "nm" full name and "fc" faces for multi-faced cards}`.
+- `n/` card details `d`: `{"ty" type line, "tx" text, "mc" mana cost, "mv" mana value, "co" colors, "ci" color identity, "kw" keywords, "pw"/"to"/"lo"/"de" power/toughness/loyalty/defense, "pm" produced mana, "ly" layout (omitted when normal), "gc" game changer, "bn" banned in Commander (from MTGJSON cardLegalities.csv), "rk" EDHREC rank (1 = most played; left out when EDHREC has none), "nm" full name and "fc" faces for multi-faced cards}`.
+- `w/<same 2-character prefix as n/>.json`: budget swaps for the app's Statistics tab, `{"<normalized name>": [[swap name, cheapest price in cents, mana value, colour identity letters, "p"|"g", EDHREC rank or 0], ...]}`.
+  Built for every card whose cheapest printing costs 50 cents or more and that does a job (ramp, draw, removal, board wipe, protection, recursion, win condition, tutor, counterspell; worked out from the card text with the same rules the app uses). Each card gets up to 8 cheaper cards that do all the same jobs, cost half its price or less, fit inside its colour identity and aren't banned in Commander, best match first (text, keywords and card type). `p` = popular pick (EDHREC top 10,000), `g` = hidden gem (a close match outside that list); the list keeps both kinds. The app applies the player's own limits (minimum price, price share, extra mana) and the deck's colours. `meta.json` has `swaps` (cards with swaps) and `swapFiles`.
 - `names.json`: the card-name list for the app's search, one row per card name: `[name, Scryfall oracle id, one printing id for the picture, mana cost, type line, colour identity letters]`. `meta.json` has `namesV`, a stamp that changes only when the list changes, so the app downloads it rarely.
 - `sets.json`: `{"<SET>": {"n": set name, "d": release date, "t": set type}}` for the sets in the name index. Join it to a printing's `s` for the set name and release date. The normalized name is lowercase letters and digits with single spaces; the file is picked by its first 2 characters with spaces dropped (`so.json` for `sol ring`). Double-faced cards appear under the full name and under each face name. `meta.json` also has `names` (printings listed) and `nameFiles`.
 
 Served from `https://raw.githubusercontent.com/bigpun054/deck-price-data/archive/`:
 - `a/<block>/<first 3 characters of the Scryfall id>.json`: same shape, `d0` = block * 90, 90 values per series.
+
+## Downloads
+
+The workflow reads these MTGJSON files each day: `AllPrices.json.gz` (prices), `cardIdentifiers.csv` / `AllIdentifiers.json.gz` and `tokenIdentifiers.csv` (Scryfall ids),
+`cards.csv` (names, text and EDHREC rank), `tokens.csv`, `sets.csv`, and `cardLegalities.csv` (`--legalities`, for the Commander ban flag).
+The names, tokens, sets and legalities downloads are retried and may fail without stopping the prices from being published.
 
 ## Settings
 
@@ -46,4 +54,4 @@ and shouldn't change once an archive exists, because block numbers depend on it.
 
 `python3 build_history.py --prices AllPrices.json.gz --identifiers cardIdentifiers.csv --out out --archive-dir arch --prev prev`
 (`--archive-dir` and `--prev` are optional; without them only the recent files are built).
-Unit tests for the block logic: `python3 tests/test_build_history.py` in the app repo.
+Unit tests for the block logic: `python3 tests/test_build_history.py` in the app repo; the ban flag, EDHREC rank and swap files: `python3 tests/test_build_swaps.py`.
