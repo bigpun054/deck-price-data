@@ -13,10 +13,11 @@ Output (in --out, published with the price files on the `data` branch under comb
   combo/i/<first 2 letters/digits of the normalized card name>.json   (same file names as the price repo's n/ index)
       {"<normalized name>": {"c": Spellbook card id,
                              "v": [[combo id, [piece card ids], [[template id, how many], ...], [feature ids], mana value needed,
-                                    bracket tag, colour identity, [indexes of pieces that must be the commander]], ...],
+                                    bracket tag, colour identity, [indexes of pieces that must be the commander], popularity
+                                    (decks on EDHREC that play it)], ...],
                              "t": [ids of the templates the card fits]}}
       Everything the phone needs to find complete and one-card-away combos for the cards it owns (names.json turns piece ids into
-      names; the feature ids leave out Spellbook's hidden engine-only steps, which the full combo still has). Commander indexes count the
+      names, features.json feature ids into results). Commander indexes count the
       named pieces first, then the template slots. A double-faced card is listed under its full name and each face's name.
   combo/tv/<template id>.json   [compact records of every combo that needs that template]   (meta "tindex": a hash per file)
       So a combo is found from a card that only fills one of its template slots, and combos made only of template slots are found too.
@@ -54,7 +55,7 @@ from build_history import norm_name
 EXPORT = "https://json.commanderspellbook.com/variants.json.gz"
 SPELLBOOK_API = "https://backend.commanderspellbook.com"
 UA = "DeckShelf-data/1.0 (+https://github.com/bigpun054/deck-price-data)"
-FORMAT = 1
+FORMAT = 2   # 2: short records carry every feature and the popularity
 
 
 def log(*a):
@@ -196,8 +197,7 @@ def split_variants(variants_iter, formats):
             features.setdefault(str(f.get("id")), f)
             p["feature"] = f.get("id")
             p.pop("n", None)
-            if f.get("status") != "H":         # hidden engine-only steps stay in the full combo, not in the short record
-                feats.append(f.get("id"))
+            feats.append(f.get("id"))
             slim(p, {"quantity": 1})
         for key in ("of", "includes"):
             ids = []
@@ -211,7 +211,8 @@ def split_variants(variants_iter, formats):
                 formats.setdefault(f, None)
             v["legalities"] = sorted(f for f, ok in lg.items() if ok)
         bt = v.get("bracketTag")
-        short[v["id"]] = [v["id"], pieces, req, feats, v.get("manaValueNeeded"), bt if bt is not None else "", v.get("identity") or "", cmd]
+        short[v["id"]] = [v["id"], pieces, req, feats, v.get("manaValueNeeded"), bt if bt is not None else "", v.get("identity") or "", cmd,
+                          v.get("popularity") or 0]
         slim(v, {})
         for k2, val in v.items():
             sizes[k2] += len(json.dumps(val, separators=(",", ":"), ensure_ascii=False))
@@ -329,7 +330,8 @@ def build(args):
     prev_meta, prev_matches = read_prev(args.prev)
     tmp = os.path.join(args.out, ".variants.json.gz")
     os.makedirs(args.out, exist_ok=True)
-    status, etag = download_export(args.export, prev_meta.get("etag") if not args.force else None, tmp)
+    same_format = prev_meta.get("format") == FORMAT     # a new file format is always rebuilt, even from the same export
+    status, etag = download_export(args.export, prev_meta.get("etag") if same_format and not args.force else None, tmp)
     if status == "unchanged" and carry_forward(args.prev, args.out):
         log("export unchanged (ETag); previous combo files kept")
         return "unchanged"

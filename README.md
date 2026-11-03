@@ -40,7 +40,8 @@ Served from `https://raw.githubusercontent.com/bigpun054/deck-price-data/data/`:
   yesterday's files are kept if anything fails) and stored whole, with each card, template, feature and recipe written once:
   - `combo/meta.json`: export timestamp and version, counts, `index` (a hash per index file), `names` (hash of names.json), `formats`.
   - `combo/i/<same 2-character prefix as n/>.json`: per normalized card name, its Spellbook card id `c`, the compact record of every combo it is in
-    `v` (`[id, piece card ids, [[template id, count]], feature ids, mana value needed, bracket tag, colour identity, must-be-commander piece indexes]`)
+    `v` (`[id, piece card ids, [[template id, count]], feature ids, mana value needed, bracket tag, colour identity, must-be-commander piece indexes,
+    popularity]`, meta `format` 2)
     and the templates it fits `t`. The app downloads only the files for cards the player owns, and again only when a file's hash changes.
   - `combo/v/<first 3 hex of sha1(combo id)>.json`: every combo with all of Spellbook's fields (steps, prerequisites, zones, prices, legality...),
     read when a combo is opened.
