@@ -1,23 +1,12 @@
 name: edhrec-probe
 on: { push: { branches: [edhrec-probe] } }
+permissions: { contents: write }
 jobs:
-  probe:
+  testset:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+      - run: python3 tools/edhrec_testset.py
       - run: |
-          for p in commanders/year commanders/month commanders top/year average-decks/marneus-calgar average-decks/marneus-calgar/aristocrats; do
-            code=$(curl -s -A "deck-shelf-probe" -o "$(echo $p | tr / _).json" -w "%{http_code}" "https://json.edhrec.com/pages/$p.json"); echo "== $p $code $(wc -c < "$(echo $p | tr / _).json")"; done
-          python3 - <<'PY'
-          import json,glob
-          for f in sorted(glob.glob("*.json")):
-              try: j=json.load(open(f))
-              except Exception as e: print("##",f,"not json"); continue
-              print("\n##", f, list(j.keys())[:20])
-              c=j.get("container",{}).get("json_dict",{})
-              print("json_dict keys", list(c.keys())[:20])
-              for cl in c.get("cardlists",[])[:3]:
-                  print(" LIST", cl.get("header"), len(cl.get("cardviews",[])), json.dumps(cl.get("cardviews",[])[:2])[:500])
-              for k in ("deck","decklist","cards","archidekt","relatedinfo"):
-                  if k in j: print(" KEY",k, json.dumps(j[k])[:600])
-              print(" RAW", json.dumps(j)[:700])
-          PY
+          git config user.name "github-actions"; git config user.email "actions@github.com"
+          git add testset && git commit -qm "Test set from EDHREC" && git push origin HEAD:edhrec-probe
