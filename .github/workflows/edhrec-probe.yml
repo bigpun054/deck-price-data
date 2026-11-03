@@ -1,0 +1,32 @@
+name: edhrec-probe
+on: { push: { branches: [edhrec-probe] } }
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          for p in commanders/marneus-calgar commanders/marneus-calgar/aristocrats commanders/marneus-calgar/tokens; do
+            curl -s -A "deck-shelf-probe" "https://json.edhrec.com/pages/$p.json" -o "$(echo $p | tr / _).json"; echo "== $p $(wc -c < "$(echo $p | tr / _).json") bytes"; done
+          curl -sI "https://json.edhrec.com/pages/commanders/marneus-calgar.json" -H "Origin: https://localhost" | grep -i "access-control\|content-type\|cache"
+          python3 - <<'PY'
+          import json,glob
+          def walk(o,p="",d=0):
+              if d>4: return
+              if isinstance(o,dict):
+                  for k,v in o.items():
+                      t=type(v).__name__; ex=(str(v)[:80] if not isinstance(v,(dict,list)) else (f"len={len(v)}"))
+                      print(f"{p}.{k} [{t}] {ex}")
+                      if isinstance(v,(dict,list)): walk(v,p+"."+k,d+1)
+              elif isinstance(o,list) and o:
+                  walk(o[0],p+"[0]",d+1)
+          for f in sorted(glob.glob("*.json")):
+              print("\n######", f)
+              j=json.load(open(f)); walk(j)
+              c=j.get("container",{}).get("json_dict",{})
+              for cl in c.get("cardlists",[]):
+                  print("LIST", cl.get("header"), cl.get("tag"), len(cl.get("cardviews",[])), [ (x.get("name"), x.get("synergy"), x.get("num_decks"), x.get("potential_decks"), x.get("inclusion")) for x in cl.get("cardviews",[])[:6]])
+              for pn,pv in (j.get("panels") or {}).items():
+                  print("PANEL", pn, json.dumps(pv)[:1500])
+              for k in ("num_decks_avg","num_decks","avg_price","deck_size","creature","instant","sorcery","artifact","enchantment","land","planeswalker","salt"):
+                  if k in j: print("TOP", k, j[k])
+          PY
