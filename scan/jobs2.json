@@ -1,0 +1,893 @@
+[
+{
+"slug": "isshin-two-heavens-as-one",
+"name": "Isshin, Two Heavens as One",
+"theme": "attack-triggers",
+"accept": [
+"attack"
+],
+"also": []
+},
+{
+"slug": "felix-five-boots",
+"name": "Felix Five-Boots",
+"theme": "attack-triggers",
+"accept": [
+"attack"
+],
+"also": []
+},
+{
+"slug": "zurgo-stormrender",
+"name": "Zurgo Stormrender",
+"theme": "attack-triggers",
+"accept": [
+"attack"
+],
+"also": []
+},
+{
+"slug": "katara-the-fearless",
+"name": "Katara, the Fearless",
+"theme": "triggered-abilities",
+"accept": [
+"doublers"
+],
+"also": []
+},
+{
+"slug": "yarok-the-desecrated",
+"name": "Yarok, the Desecrated",
+"theme": "triggered-abilities",
+"accept": [
+"doublers"
+],
+"also": []
+},
+{
+"slug": "veyran-voice-of-duality",
+"name": "Veyran, Voice of Duality",
+"theme": "triggered-abilities",
+"accept": [
+"doublers"
+],
+"also": []
+},
+{
+"slug": "teysa-karlov",
+"name": "Teysa Karlov",
+"theme": "triggered-abilities",
+"accept": [
+"doublers"
+],
+"also": []
+},
+{
+"slug": "yarok-the-desecrated",
+"name": "Yarok, the Desecrated",
+"theme": "etb",
+"accept": [
+"etb"
+],
+"also": []
+},
+{
+"slug": "roon-of-the-hidden-realm",
+"name": "Roon of the Hidden Realm",
+"theme": "etb",
+"accept": [
+"etb"
+],
+"also": []
+},
+{
+"slug": "the-jolly-balloon-man",
+"name": "The Jolly Balloon Man",
+"theme": "etb",
+"accept": [
+"etb"
+],
+"also": []
+},
+{
+"slug": "elesh-norn-mother-of-machines",
+"name": "Elesh Norn, Mother of Machines",
+"theme": "etb",
+"accept": [
+"etb"
+],
+"also": []
+},
+{
+"slug": "lara-croft-tomb-raider",
+"name": "Lara Croft, Tomb Raider",
+"theme": "historic",
+"accept": [
+"legends"
+],
+"also": []
+},
+{
+"slug": "dihada-binder-of-wills",
+"name": "Dihada, Binder of Wills",
+"theme": "legends",
+"accept": [
+"legends"
+],
+"also": []
+},
+{
+"slug": "ratadrabik-of-urborg",
+"name": "Ratadrabik of Urborg",
+"theme": "legends",
+"accept": [
+"legends"
+],
+"also": []
+},
+{
+"slug": "jodah-the-unifier",
+"name": "Jodah, the Unifier",
+"theme": "legends",
+"accept": [
+"legends"
+],
+"also": []
+},
+{
+"slug": "kadena-slinking-sorcerer",
+"name": "Kadena, Slinking Sorcerer",
+"theme": "morph",
+"accept": [
+"facedown"
+],
+"also": []
+},
+{
+"slug": "kaust-eyes-of-the-glade",
+"name": "Kaust, Eyes of the Glade",
+"theme": "morph",
+"accept": [
+"facedown"
+],
+"also": []
+},
+{
+"slug": "yarus-roar-of-the-old-gods",
+"name": "Yarus, Roar of the Old Gods",
+"theme": "morph",
+"accept": [
+"facedown"
+],
+"also": []
+},
+{
+"slug": "vannifar-evolved-enigma",
+"name": "Vannifar, Evolved Enigma",
+"theme": "morph",
+"accept": [
+"facedown"
+],
+"also": []
+},
+{
+"slug": "jyoti-moag-ancient",
+"name": "Jyoti, Moag Ancient",
+"theme": "land-animation",
+"accept": [
+"bending"
+],
+"also": []
+},
+{
+"slug": "toph-hardheaded-teacher",
+"name": "Toph, Hardheaded Teacher",
+"theme": "earthbending",
+"accept": [
+"bending"
+],
+"also": []
+},
+{
+"slug": "toph-earthbending-master",
+"name": "Toph, Earthbending Master",
+"theme": "earthbending",
+"accept": [
+"bending"
+],
+"also": []
+},
+{
+"slug": "toph-the-first-metalbender",
+"name": "Toph, the First Metalbender",
+"theme": "earthbending",
+"accept": [
+"bending"
+],
+"also": []
+},
+{
+"slug": "frodo-saurons-bane",
+"name": "Frodo, Sauron's Bane",
+"theme": "the-ring",
+"accept": [
+"ring"
+],
+"also": []
+},
+{
+"slug": "smeagol-helpful-guide",
+"name": "Sm\u00e9agol, Helpful Guide",
+"theme": "the-ring",
+"accept": [
+"ring"
+],
+"also": []
+},
+{
+"slug": "sauron-the-dark-lord",
+"name": "Sauron, the Dark Lord",
+"theme": "the-ring",
+"accept": [
+"ring"
+],
+"also": []
+},
+{
+"slug": "frodo-adventurous-hobbit-sam-loyal-attendant",
+"name": "Frodo, Adventurous Hobbit // Sam, Loyal Attendant",
+"theme": "the-ring",
+"accept": [
+"ring"
+],
+"also": []
+},
+{
+"slug": "clive-ifrits-dominant",
+"name": "Clive, Ifrit's Dominant",
+"theme": "devotion",
+"accept": [
+"devotion"
+],
+"also": []
+},
+{
+"slug": "baron-helmut-zemo",
+"name": "Baron Helmut Zemo",
+"theme": "devotion",
+"accept": [
+"devotion"
+],
+"also": []
+},
+{
+"slug": "ayara-first-of-locthwain",
+"name": "Ayara, First of Locthwain",
+"theme": "devotion",
+"accept": [
+"devotion"
+],
+"also": []
+},
+{
+"slug": "krrik-son-of-yawgmoth",
+"name": "K'rrik, Son of Yawgmoth",
+"theme": "devotion",
+"accept": [
+"devotion"
+],
+"also": []
+},
+{
+"slug": "general-ferrous-rokiric",
+"name": "General Ferrous Rokiric",
+"theme": "multicolor-matters",
+"accept": [
+"multicolor"
+],
+"also": []
+},
+{
+"slug": "niv-mizzet-reborn",
+"name": "Niv-Mizzet Reborn",
+"theme": "multicolor-matters",
+"accept": [
+"multicolor"
+],
+"also": []
+},
+{
+"slug": "niv-mizzet-guildpact",
+"name": "Niv-Mizzet, Guildpact",
+"theme": "multicolor-matters",
+"accept": [
+"multicolor"
+],
+"also": []
+},
+{
+"slug": "jenson-carthalion-druid-exile",
+"name": "Jenson Carthalion, Druid Exile",
+"theme": "multicolor-matters",
+"accept": [
+"multicolor"
+],
+"also": []
+},
+{
+"slug": "blim-comedic-genius",
+"name": "Blim, Comedic Genius",
+"theme": "donate",
+"accept": [
+"donate"
+],
+"also": []
+},
+{
+"slug": "jon-irenicus-shattered-one",
+"name": "Jon Irenicus, Shattered One",
+"theme": "donate",
+"accept": [
+"donate"
+],
+"also": []
+},
+{
+"slug": "zedruu-the-greathearted",
+"name": "Zedruu the Greathearted",
+"theme": "donate",
+"accept": [
+"donate"
+],
+"also": []
+},
+{
+"slug": "the-beamtown-bullies",
+"name": "The Beamtown Bullies",
+"theme": "donate",
+"accept": [
+"donate"
+],
+"also": []
+},
+{
+"slug": "delney-streetwise-lookout",
+"name": "Delney, Streetwise Lookout",
+"theme": "weenies",
+"accept": [
+"weenies"
+],
+"also": []
+},
+{
+"slug": "arabella-abandoned-doll",
+"name": "Arabella, Abandoned Doll",
+"theme": "weenies",
+"accept": [
+"weenies"
+],
+"also": []
+},
+{
+"slug": "agatha-of-the-vile-cauldron",
+"name": "Agatha of the Vile Cauldron",
+"theme": "activated-abilities",
+"accept": [
+"activated"
+],
+"also": []
+},
+{
+"slug": "gogo-master-of-mimicry",
+"name": "Gogo, Master of Mimicry",
+"theme": "activated-abilities",
+"accept": [
+"activated"
+],
+"also": []
+},
+{
+"slug": "thranduil-the-elvenking",
+"name": "Thranduil, the Elvenking",
+"theme": "activated-abilities",
+"accept": [
+"activated"
+],
+"also": []
+},
+{
+"slug": "kenrith-the-returned-king",
+"name": "Kenrith, the Returned King",
+"theme": "activated-abilities",
+"accept": [
+"activated"
+],
+"also": []
+},
+{
+"slug": "hylda-of-the-icy-crown",
+"name": "Hylda of the Icy Crown",
+"theme": "tap-untap",
+"accept": [
+"untap"
+],
+"also": []
+},
+{
+"slug": "merieke-ri-berit",
+"name": "Merieke Ri Berit",
+"theme": "tap-untap",
+"accept": [
+"untap"
+],
+"also": []
+},
+{
+"slug": "alaundo-the-seer",
+"name": "Alaundo the Seer",
+"theme": "tap-untap",
+"accept": [
+"untap"
+],
+"also": []
+},
+{
+"slug": "kumena-tyrant-of-orazca",
+"name": "Kumena, Tyrant of Orazca",
+"theme": "tap-untap",
+"accept": [
+"untap"
+],
+"also": []
+},
+{
+"slug": "rowan-scion-of-war",
+"name": "Rowan, Scion of War",
+"theme": "self-damage",
+"accept": [
+"lifepay"
+],
+"also": []
+},
+{
+"slug": "betor-ancestors-voice",
+"name": "Betor, Ancestor's Voice",
+"theme": "self-damage",
+"accept": [
+"lifepay"
+],
+"also": []
+},
+{
+"slug": "cecil-dark-knight",
+"name": "Cecil, Dark Knight",
+"theme": "self-damage",
+"accept": [
+"lifepay"
+],
+"also": []
+},
+{
+"slug": "mister-negative",
+"name": "Mister Negative",
+"theme": "self-damage",
+"accept": [
+"lifepay"
+],
+"also": []
+},
+{
+"slug": "tana-the-bloodsower-tymna-the-weaver",
+"name": "Tana, the Bloodsower // Tymna the Weaver",
+"theme": "birthing-pod",
+"accept": [
+"pod"
+],
+"also": []
+},
+{
+"slug": "tasigur-the-golden-fang",
+"name": "Tasigur, the Golden Fang",
+"theme": "birthing-pod",
+"accept": [
+"pod"
+],
+"also": []
+},
+{
+"slug": "derevi-empyrial-tactician",
+"name": "Derevi, Empyrial Tactician",
+"theme": "birthing-pod",
+"accept": [
+"pod"
+],
+"also": []
+},
+{
+"slug": "captain-sisay",
+"name": "Captain Sisay",
+"theme": "toolbox",
+"accept": [
+"toolbox"
+],
+"also": []
+},
+{
+"slug": "kellan-the-fae-blooded",
+"name": "Kellan, the Fae-Blooded",
+"theme": "toolbox",
+"accept": [
+"toolbox"
+],
+"also": []
+},
+{
+"slug": "karador-ghost-chieftain",
+"name": "Karador, Ghost Chieftain",
+"theme": "toolbox",
+"accept": [
+"toolbox"
+],
+"also": []
+},
+{
+"slug": "sisay-weatherlight-captain",
+"name": "Sisay, Weatherlight Captain",
+"theme": "toolbox",
+"accept": [
+"toolbox"
+],
+"also": []
+},
+{
+"slug": "otrimi-the-ever-playful",
+"name": "Otrimi, the Ever-Playful",
+"theme": "mutate",
+"accept": [
+"mutate"
+],
+"also": []
+},
+{
+"slug": "illuna-apex-of-wishes",
+"name": "Illuna, Apex of Wishes",
+"theme": "mutate",
+"accept": [
+"mutate"
+],
+"also": []
+},
+{
+"slug": "nethroi-apex-of-death",
+"name": "Nethroi, Apex of Death",
+"theme": "mutate",
+"accept": [
+"mutate"
+],
+"also": []
+},
+{
+"slug": "ivy-gleeful-spellthief",
+"name": "Ivy, Gleeful Spellthief",
+"theme": "mutate",
+"accept": [
+"mutate"
+],
+"also": []
+},
+{
+"slug": "burakos-party-leader-folk-hero",
+"name": "Burakos, Party Leader // Folk Hero",
+"theme": "party",
+"accept": [
+"party"
+],
+"also": []
+},
+{
+"slug": "nalia-dearnise",
+"name": "Nalia de'Arnise",
+"theme": "party",
+"accept": [
+"party"
+],
+"also": []
+},
+{
+"slug": "tazri-beacon-of-unity",
+"name": "Tazri, Beacon of Unity",
+"theme": "party",
+"accept": [
+"party"
+],
+"also": []
+},
+{
+"slug": "the-destined-warrior",
+"name": "The Destined Warrior",
+"theme": "party",
+"accept": [
+"party"
+],
+"also": []
+},
+{
+"slug": "maarika-brutal-gladiator",
+"name": "Maarika, Brutal Gladiator",
+"theme": "fight",
+"accept": [
+"fight"
+],
+"also": []
+},
+{
+"slug": "wolverine-best-there-is",
+"name": "Wolverine, Best There Is",
+"theme": "fight",
+"accept": [
+"fight"
+],
+"also": []
+},
+{
+"slug": "legolas-master-archer",
+"name": "Legolas, Master Archer",
+"theme": "fight",
+"accept": [
+"fight"
+],
+"also": []
+},
+{
+"slug": "wayta-trainer-prodigy",
+"name": "Wayta, Trainer Prodigy",
+"theme": "fight",
+"accept": [
+"fight"
+],
+"also": []
+},
+{
+"slug": "winota-joiner-of-forces",
+"name": "Winota, Joiner of Forces",
+"theme": null,
+"accept": [
+"attack"
+],
+"also": []
+},
+{
+"slug": "najeela-the-blade-blossom",
+"name": "Najeela, the Blade-Blossom",
+"theme": null,
+"accept": [
+"attack"
+],
+"also": []
+},
+{
+"slug": "adeline-resplendent-cathar",
+"name": "Adeline, Resplendent Cathar",
+"theme": null,
+"accept": [
+"attack"
+],
+"also": []
+},
+{
+"slug": "kaalia-of-the-vast",
+"name": "Kaalia of the Vast",
+"theme": null,
+"accept": [
+"attack"
+],
+"also": []
+},
+{
+"slug": "teysa-karlov",
+"name": "Teysa Karlov",
+"theme": null,
+"accept": [
+"doublers"
+],
+"also": []
+},
+{
+"slug": "yarok-the-desecrated",
+"name": "Yarok, the Desecrated",
+"theme": null,
+"accept": [
+"doublers"
+],
+"also": []
+},
+{
+"slug": "elesh-norn-mother-of-machines",
+"name": "Elesh Norn, Mother of Machines",
+"theme": null,
+"accept": [
+"doublers"
+],
+"also": []
+},
+{
+"slug": "veyran-voice-of-duality",
+"name": "Veyran, Voice of Duality",
+"theme": null,
+"accept": [
+"doublers"
+],
+"also": []
+},
+{
+"slug": "jodah-the-unifier",
+"name": "Jodah, the Unifier",
+"theme": null,
+"accept": [
+"legends"
+],
+"also": []
+},
+{
+"slug": "sisay-weatherlight-captain",
+"name": "Sisay, Weatherlight Captain",
+"theme": null,
+"accept": [
+"legends"
+],
+"also": []
+},
+{
+"slug": "alandra-sky-dreamer",
+"name": "Alandra, Sky Dreamer",
+"theme": null,
+"accept": [
+"drawtwo"
+],
+"also": []
+},
+{
+"slug": "minn-wily-illusionist",
+"name": "Minn, Wily Illusionist",
+"theme": null,
+"accept": [
+"drawtwo"
+],
+"also": []
+},
+{
+"slug": "gavi-nest-warden",
+"name": "Gavi, Nest Warden",
+"theme": null,
+"accept": [
+"drawtwo"
+],
+"also": []
+},
+{
+"slug": "the-council-of-four",
+"name": "The Council of Four",
+"theme": null,
+"accept": [
+"drawtwo"
+],
+"also": []
+},
+{
+"slug": "avatar-aang",
+"name": "Avatar Aang",
+"theme": null,
+"accept": [
+"bending"
+],
+"also": []
+},
+{
+"slug": "obuun-mul-daya-ancestor",
+"name": "Obuun, Mul Daya Ancestor",
+"theme": null,
+"accept": [
+"bending"
+],
+"also": []
+},
+{
+"slug": "ashaya-soul-of-the-wild",
+"name": "Ashaya, Soul of the Wild",
+"theme": null,
+"accept": [
+"bending"
+],
+"also": []
+},
+{
+"slug": "arabella-abandoned-doll",
+"name": "Arabella, Abandoned Doll",
+"theme": null,
+"accept": [
+"weenies"
+],
+"also": []
+},
+{
+"slug": "delney-streetwise-lookout",
+"name": "Delney, Streetwise Lookout",
+"theme": null,
+"accept": [
+"weenies"
+],
+"also": []
+},
+{
+"slug": "ezuri-claw-of-progress",
+"name": "Ezuri, Claw of Progress",
+"theme": null,
+"accept": [
+"weenies"
+],
+"also": []
+},
+{
+"slug": "kilo-apogee-mind",
+"name": "Kilo, Apogee Mind",
+"theme": null,
+"accept": [
+"untap"
+],
+"also": []
+},
+{
+"slug": "derevi-empyrial-tactician",
+"name": "Derevi, Empyrial Tactician",
+"theme": null,
+"accept": [
+"untap"
+],
+"also": []
+},
+{
+"slug": "zirda-the-dawnwaker",
+"name": "Zirda, the Dawnwaker",
+"theme": null,
+"accept": [
+"activated"
+],
+"also": []
+},
+{
+"slug": "agatha-of-the-vile-cauldron",
+"name": "Agatha of the Vile Cauldron",
+"theme": null,
+"accept": [
+"activated"
+],
+"also": []
+},
+{
+"slug": "anti-venom-horrifying-healer",
+"name": "Anti-Venom, Horrifying Healer",
+"theme": null,
+"accept": [
+"cmdcopy"
+],
+"also": []
+},
+{
+"slug": "tannuk-steadfast-second",
+"name": "Tannuk, Steadfast Second",
+"theme": null,
+"accept": [
+"cheat"
+],
+"also": []
+},
+{
+"slug": "henzie-toolbox-torre",
+"name": "Henzie \"Toolbox\" Torre",
+"theme": null,
+"accept": [
+"cheat"
+],
+"also": []
+}
+]
