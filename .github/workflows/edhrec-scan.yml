@@ -1,0 +1,20 @@
+name: EDHREC commander scan (one-off)
+on:
+  push:
+    branches: [edhrec-scan]
+    paths: ["scan/scan_edhrec.py", ".github/workflows/edhrec-scan.yml"]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: python3 scan/scan_edhrec.py 1000
+      - run: |
+          git config user.name "scan-bot"; git config user.email "scan-bot@users.noreply.github.com"
+          git add scan/commanders.json && git commit -m "EDHREC scan results" && git push origin HEAD:edhrec-scan
