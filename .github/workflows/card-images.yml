@@ -1,0 +1,24 @@
+name: card-images (temporary)
+on:
+  push:
+    branches: [tmp-card-images]
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download card images from Scryfall
+        run: |
+          mkdir -p img
+          i=0
+          while IFS= read -r n; do
+            [ -z "$n" ] && continue
+            i=$((i+1))
+            curl -sSL -G -H "User-Agent: DeckShelf/1.0" -H "Accept: */*" --data-urlencode "exact=$n" --data-urlencode "format=image" --data-urlencode "version=normal" "https://api.scryfall.com/cards/named" -o "img/$(printf %03d $i).jpg" || echo "fail $n"
+            sleep 0.15
+          done < card-names.txt
+          ls -la img | head; du -sh img
+      - uses: actions/upload-artifact@v4
+        with:
+          name: card-images
+          path: img
