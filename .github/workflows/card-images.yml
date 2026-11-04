@@ -2,6 +2,8 @@ name: card-images (temporary)
 on:
   push:
     branches: [tmp-card-images]
+permissions:
+  contents: write
 jobs:
   fetch:
     runs-on: ubuntu-latest
@@ -18,7 +20,7 @@ jobs:
             sleep 0.15
           done < card-names.txt
           ls -la img | head; du -sh img
-      - uses: actions/upload-artifact@v4
-        with:
-          name: card-images
-          path: img
+      - name: Commit the images to this temporary branch
+        run: |
+          git config user.name "github-actions"; git config user.email "github-actions@users.noreply.github.com"
+          git add img && git commit -qm "card images" && git push -q origin HEAD:tmp-card-images
