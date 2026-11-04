@@ -13,8 +13,9 @@ def get(path, tries=4):
             print("retry", path, e, flush=True); time.sleep(3 * (t + 1))
     return None
 def lists(d):
+    # the first page nests its lists; the "more" pages are a bare {cardviews, more}
     c = (d or {}).get("container", {}).get("json_dict", {})
-    return c.get("cardlists") or []
+    return (c.get("cardlists") or []) + ([d] if (d or {}).get("cardviews") else [])
 out, seen, path, log = [], set(), "commanders/year.json", []
 while path and len(out) < WANT:
     d = get(path); log.append([path, bool(d)])
@@ -37,5 +38,6 @@ for k, c in enumerate(out[:WANT]):
         c["num"] = d.get("num_decks_avg") or (d.get("container", {}).get("json_dict", {}).get("card", {}) or {}).get("num_decks")
     if k % 50 == 0: print(k, c["name"], len(c.get("themes") or []), flush=True)
     time.sleep(0.35)
+if len(out) < 5: print("keys of last page:", list((d or {}).keys())[:20])
 json.dump({"at": time.strftime("%Y-%m-%d"), "log": log, "commanders": out[:WANT]}, open("scan/commanders.json", "w"), indent=0)
 print("done", len(out[:WANT]))
