@@ -35,7 +35,8 @@ Two kinds of output, so the app only re-downloads a small amount each day:
     "e" (frame effects), "u" (TCGplayer product id), "fn" (flavour name) and "k" (numbers of the tokens it makes, see below).
       d = {"ty": type line, "tx": rules text, "mc": mana cost, "mv": mana value, "co": [colours], "ci": [colour identity],
            "kw": [keywords], "pw": power, "to": toughness, "lo": loyalty, "de": defense, "pm": [mana it can produce],
-           "ly": layout (left out for "normal"), "gc": 1 for a Game Changer, "bn": 1 if banned in Commander (needs --legalities),
+           "ly": layout (left out for "normal"), "gc": 1 for a Game Changer, "bn": 1 if banned in Commander (needs --legalities;
+           meta.json "legalOk" is true when today's ban list was read, false when yesterday's marks were kept or there were none),
            "rk": EDHREC rank, 1 = most played (left out when EDHREC has none)}
       a card with several faces carries "nm" (the full name) and "fc" = [{"n": face name, "mc", "mv", "ty", "tx", "pw", "to", "lo", "de", "co", "pm"}, ...]
       instead of the per-face fields, and keeps "mv", "ci", "kw", "ly", "gc" for the whole card.
@@ -651,7 +652,7 @@ def carry_names_forward(prev_dir, out_dir):
         shutil.copy2(src_list, os.path.join(out_dir, "names.json"))
         if os.path.isfile(src_sets):
             shutil.copy2(src_sets, os.path.join(out_dir, "sets.json"))
-        kept = {k: pm[k] for k in ("names", "nameFiles", "nameFormat", "namesV", "sets", "unpriced") if k in pm}
+        kept = {k: pm[k] for k in ("names", "nameFiles", "nameFormat", "namesV", "sets", "unpriced", "legalOk") if k in pm}
         kept["namesFrom"] = pm.get("namesFrom") or pm.get("built") or ""   # when this list was really built; stays the same while it is reused
         return kept
     except Exception as e:
@@ -661,6 +662,76 @@ def carry_names_forward(prev_dir, out_dir):
             try: os.remove(os.path.join(out_dir, f))
             except OSError: pass
         return None
+
+
+def carry_banned_forward(prev_dir, names, oracle):
+    """Today's ban list could not be downloaded: mark the cards that the previously published name index marked banned ("bn"), matched by
+    oracle id (or by name), so a banned card doesn't suddenly look legal. Returns how many of today's printings were marked, or None when
+    there is no usable previous index. Cards banned since then are not known, which is why meta.legalOk is false on such a day."""
+    if not prev_dir:
+        return None
+    try:
+        src_n = os.path.join(prev_dir, "n")
+        if not os.path.isdir(src_n):
+            return None
+        orcs, keys = set(), set()
+        for fn in os.listdir(src_n):
+            if not fn.endswith(".json"):
+                continue
+            with open(os.path.join(src_n, fn), encoding="utf-8") as fh:
+                for key, ent in json.load(fh).items():
+                    if (ent.get("d") or {}).get("bn"):
+                        keys.add(key)
+                        if ent.get("o"):
+                            orcs.add(ent["o"])
+        marked = 0
+        for u, info in names.items():
+            if (oracle.get(u) and oracle[u] in orcs) or norm_name(info.get("name") or "") in keys:
+                info["bn"] = True
+                marked += 1
+        return marked
+    except Exception as e:
+        print(f"legalities: earlier ban marks not readable ({e!r})", file=sys.stderr, flush=True)
+        return None
+
+
+def read_prices(src, ids, d0, n):
+    """TCGplayer retail prices from AllPrices.json(.gz): ({scryfall id: {"n"|"f"|"e": array('i')}}, latest day with a price). -1 = no price."""
+    series = {}
+    latest = d0
+    seen = 0
+    f = open_any(src)
+    try:
+        for uuid, card in kvitems(f, "data", use_float=True):
+            sid = ids.get(uuid)
+            if not sid:
+                continue
+            retail = (((card.get("paper") or {}).get("tcgplayer") or {}).get("retail")) or {}
+            for fin, key in FIN.items():
+                pts = retail.get(fin)
+                if not pts:
+                    continue
+                arr = None
+                for date, price in pts.items():
+                    if price is None:
+                        continue
+                    i = day_num(date) - d0
+                    if i < 0 or i >= n:
+                        continue
+                    if arr is None:
+                        s = series.setdefault(sid, {})
+                        arr = s.get(key)
+                        if arr is None:
+                            arr = s[key] = array("i", [-1] * n)
+                    if arr[i] == -1:  # first uuid wins; later faces only fill gaps
+                        arr[i] = int(round(price * 100))
+                        latest = max(latest, d0 + i)
+            seen += 1
+            if seen % 20000 == 0:
+                print(f"  read {seen} cards", flush=True)
+    finally:
+        f.close()
+    return series, latest
 
 
 def make_block(k, B, series, d0, n, prev):
@@ -746,7 +817,7 @@ def main():
     ap.add_argument("--block-days", type=int, default=90, help="archive block length; must not exceed --days")
     ap.add_argument("--keep-days", type=int, default=730, help="how long the archive keeps history (default 2 years)")
     ap.add_argument("--archive-dir", help="folder holding the archive branch checkout; finished blocks are added under a/")
-    ap.add_argument("--retries", type=int, default=0, help="how many more times to try the names, tokens and sets downloads when one fails (default 0)")
+    ap.add_argument("--retries", type=int, default=0, help="how many more times to try a download (prices, identifiers, names, tokens, sets, legalities) when it fails (default 0)")
     ap.add_argument("--retry-wait", type=int, default=600, help="seconds to wait between those tries (default 600 = 10 minutes)")
     ap.add_argument("--prev", help="folder with the previously published recent files (the old `data` branch)")
     ap.add_argument("--archive-base", help="public URL of the archive branch, written into meta.json for the app")
@@ -767,7 +838,7 @@ def main():
     tcg = {}     # uuid -> TCGplayer product id
     for src in a.identifiers:
         try:
-            ids = load_ids(src, oracle, tcg)
+            ids = with_retries(f"identifiers: {src}", lambda: load_ids(src, oracle, tcg), a.retries, a.retry_wait)
             if ids:
                 print(f"identifiers: {len(ids)} from {src}", flush=True)
                 break
@@ -783,38 +854,8 @@ def main():
         except Exception as e:
             print(f"identifiers: {src} skipped ({e})", file=sys.stderr, flush=True)
 
-    series = {}  # scryfall id -> {"n"|"f"|"e": array('i')}, -1 = no price
-    latest = d0
-    seen = 0
-    f = open_any(a.prices)
-    for uuid, card in kvitems(f, "data", use_float=True):
-        sid = ids.get(uuid)
-        if not sid:
-            continue
-        retail = (((card.get("paper") or {}).get("tcgplayer") or {}).get("retail")) or {}
-        for fin, key in FIN.items():
-            pts = retail.get(fin)
-            if not pts:
-                continue
-            arr = None
-            for date, price in pts.items():
-                if price is None:
-                    continue
-                i = day_num(date) - d0
-                if i < 0 or i >= n:
-                    continue
-                if arr is None:
-                    s = series.setdefault(sid, {})
-                    arr = s.get(key)
-                    if arr is None:
-                        arr = s[key] = array("i", [-1] * n)
-                if arr[i] == -1:  # first uuid wins; later faces only fill gaps
-                    arr[i] = int(round(price * 100))
-                    latest = max(latest, d0 + i)
-        seen += 1
-        if seen % 20000 == 0:
-            print(f"  read {seen} cards", flush=True)
-    f.close()
+    # The main price file: read whole, from scratch on every try, so a download cut off midway is tried again instead of failing the run
+    series, latest = with_retries(f"prices: {a.prices}", lambda: read_prices(a.prices, ids, d0, n), a.retries, a.retry_wait)
 
     # Archive first: it needs the OLD recent files (--prev) to still describe the block that just closed.
     arch = []
@@ -861,15 +902,22 @@ def main():
             print(f"tokens: +{len(more)} from {src}", flush=True)
         except Exception as e:
             print(f"tokens: {src} skipped ({e})", file=sys.stderr, flush=True)
+    legal_ok = False   # True only when today's ban list was read; the app then knows a card without "bn" is not banned
     if a.legalities and names:
         try:
             banned = with_retries(f"legalities: {a.legalities}", lambda: load_legal(a.legalities), a.retries, a.retry_wait)
             for u in banned:
                 if u in names:
                     names[u]["bn"] = True
+            legal_ok = True
             print(f"legalities: {len(banned)} printings banned in Commander", flush=True)
         except Exception as e:
             print(f"legalities: {a.legalities} skipped ({e})", file=sys.stderr, flush=True)
+            kept = carry_banned_forward(a.prev, names, oracle)
+            if kept is None:
+                print("legalities: no earlier ban marks to keep; no card is marked banned today", file=sys.stderr, flush=True)
+            else:
+                print(f"legalities: kept yesterday's ban marks ({kept} printings)", flush=True)
     all_sets = {}
     if a.sets:
         try:
@@ -932,6 +980,7 @@ def main():
         meta["unpriced"] = name_info[4]   # paper printings listed without a price (shown as "No price" in the app)
         if NAMES_V:
             meta["namesV"] = NAMES_V
+        meta["legalOk"] = legal_ok
         if set_count:
             meta["sets"] = set_count
     if kept_names:

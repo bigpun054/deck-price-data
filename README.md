@@ -56,7 +56,9 @@ Served from `https://raw.githubusercontent.com/bigpun054/deck-price-data/archive
 
 The workflow reads these MTGJSON files each day: `AllPrices.json.gz` (prices), `cardIdentifiers.csv` / `AllIdentifiers.json.gz` and `tokenIdentifiers.csv` (Scryfall ids),
 `cards.csv` (names, text and EDHREC rank), `tokens.csv`, `sets.csv`, and `cardLegalities.csv` (`--legalities`, for the Commander ban flag).
-The names, tokens, sets and legalities downloads are retried and may fail without stopping the prices from being published.
+Every download (prices, identifiers, names, tokens, sets, legalities) is retried (`--retries`, `--retry-wait`); the names, tokens, sets and legalities downloads may fail without stopping the prices from being published.
+If the legalities download fails, the ban marks (`bn`) from the last published name index are kept, and `meta.json` `legalOk` is `false` (it is `true` when today's ban list was read).
+The app then treats a card without `bn` as "not known to be banned" rather than legal for sure.
 The combo step reads `https://json.commanderspellbook.com/variants.json.gz` plus Scryfall and Spellbook searches for template slots; it can also fail without stopping the prices.
 
 ## Settings

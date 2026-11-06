@@ -15,7 +15,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 120   # room for the download retries (up to 3 x 10 minutes of waiting)
+    timeout-minutes: 240   # room for the download retries (each download up to 3 x 10 minutes of waiting)
     env:
       REMOTE: https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}
     steps:
