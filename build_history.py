@@ -48,6 +48,14 @@ Two kinds of output, so the app only re-downloads a small amount each day:
       recursion, win condition, tutor, counterspell): up to 8 cards that do the same jobs, cost half as much or less and fit inside its
       colour identity, best match first. "p" = popular pick (EDHREC top 10,000), "g" = hidden gem (a close match outside that list).
       The app picks from these with the player's own price and mana limits.
+  card roles (needs --roles; Build 287, refreshed weekly)
+    roles.json    {"at": when Scryfall was last asked, "ok": every role answered, "tags": {"<tag>": total_cards or null},
+                   "c": {"<oracle id>": "<role letters>"}}
+    Scryfall's community oracle tags (Tagger), asked once a week: r ramp, v removal, a card advantage, d draw, w board wipe, t tutor,
+    c counterspell, p protection, e recursion. A card's letters are also written into its details in the name index as "rl"
+    (d.rl), so the app reads them with the card. A tag Scryfall doesn't know or answers with a suspicious size keeps last
+    week's letters for that role; between refreshes (and when Scryfall can't be reached) the previous roles.json is carried forward.
+    meta.json "rolesAt" is when the letters were fetched, "rolesOk" whether every role was answered then.
   tokens (needs --tokens)
     t/<token set code>.json   {"<token number>": {"i": scryfall id, "n": name, "ty", "tx", "pw", "to", "co", "kw", "ly", "u", "f", "$", "fc"}}
     A printing's "k" lists the numbers of the tokens (in its set's token set, from sets.json "ts") that its card makes.
@@ -56,7 +64,7 @@ Day number = whole days since 1970-01-01 (UTC). n = nonfoil, f = foil, e = etche
 MTGJSON only publishes the last 90 days, so an archive block is assembled from the previous run's recent files (--prev)
 plus MTGJSON's window; days neither source has stay null.
 """
-import argparse, csv, hashlib, datetime as dt, gzip, io, json, os, re, shutil, sys, tempfile, time, urllib.request
+import argparse, csv, hashlib, datetime as dt, gzip, io, json, os, re, shutil, sys, tempfile, time, urllib.error, urllib.parse, urllib.request
 from array import array
 
 try:
@@ -225,8 +233,41 @@ JOBS = (("ramp", None), ("draw", RE_DRAW), ("removal", RE_REMOVAL), ("wipe", RE_
 STOP = set("a an the of to and or your you its it this that each any target card cards creature creatures until end turn may with from for into on in at as is are be can't".split())
 
 
+RE_LAND_TUTOR = re.compile(r"search your library for[^.]*\b(?:basic land|land cards?|lands?|plains|island|swamp|mountain|forest)\b", re.I)
+
+
+def tag_jobs(rl, regex_jobs, text):
+    """The jobs from Scryfall's oracle-tag letters (d.rl, Build 287), the same mapping the app uses (deck-analysis.js roleTagsOf).
+    Recursion and win conditions have no tag here and stay with the rules text."""
+    has = lambda k: k in rl
+    out = []
+    if has("r"):
+        out.append("ramp")
+    # card advantage counts as draw unless it is only a tutor or recursion
+    if has("d") or (has("a") and not has("t") and not has("e")):
+        out.append("draw")
+    # Scryfall's removal also covers board wipes and counterspells: those count as removal only when their text reads so (Cyclonic Rift)
+    if has("v") and ("removal" in regex_jobs or not (has("w") or has("c"))):
+        out.append("removal")
+    if has("w"):
+        out.append("wipe")
+    if has("p"):
+        out.append("protect")
+    if "recursion" in regex_jobs:
+        out.append("recursion")
+    if "win" in regex_jobs:
+        out.append("win")
+    # a land search (Cultivate) is ramp, not a tutor
+    if has("t") and not all(RE_LAND_TUTOR.search(sn) for sn in re.findall(r"search your library[^.]*", text, re.I) or ["x"]):
+        out.append("tutor")
+    if has("c"):
+        out.append("counter")
+    return out
+
+
 def card_jobs(d):
-    """The jobs a card (its name-index details) does, using the app's rules: [] for lands and cards with no job."""
+    """The jobs a card (its name-index details) does, using the app's rules: [] for lands and cards with no job.
+    A card with Scryfall's oracle-tag letters (d.rl) takes its jobs from them (tag_jobs); the rules-text reading is the fallback."""
     faces = d.get("fc") or [d]
     ty = faces[0].get("ty") or d.get("ty") or ""
     primary = next((t for t in TYPE_ORDER if re.search(r"\b" + t + r"\b", ty)), "Other")
@@ -242,6 +283,8 @@ def card_jobs(d):
                 out.append(job)
         elif rx.search(mine if job in ("protect", "recursion", "draw") else text):
             out.append(job)
+    if d.get("rl"):
+        out = tag_jobs(d["rl"], out, text)
     return out, primary
 
 
@@ -314,6 +357,154 @@ def write_swaps(root, index_shards, popular=10000, keep=8):
         with open(os.path.join(root, pre + ".json"), "w") as fh:
             json.dump(ents, fh, separators=(",", ":"), sort_keys=True)
     return count, len(shards)
+
+
+# ---------- Card roles from Scryfall's oracle tags (Build 287): asked once a week, written to roles.json and each card's d.rl ----------
+SCRYFALL_API = "https://api.scryfall.com"
+SCRYFALL_HEADERS = {"User-Agent": "DeckShelfPriceData/1.0", "Accept": "application/json"}
+# (letter, role, tags to ask for, fewest and most cards a tag may have). Every tag of a role that answers with a sensible size is used
+# (aliases and narrower tags add up); the first one listed is the main one. Tag names come from Scryfall Tagger; the log lists each
+# tag's total_cards on every refresh, so a renamed or missing tag shows up there (and keeps last week's letters for its role).
+ROLE_TAGS = (
+    ("r", "ramp", ("ramp",), 1000, 25000),
+    ("v", "removal", ("removal",), 1000, 30000),
+    ("a", "card advantage", ("card-advantage",), 1500, 40000),
+    ("d", "draw", ("draw",), 800, 25000),
+    ("w", "board wipe", ("sweeper", "board-wipe"), 100, 5000),
+    ("t", "tutor", ("tutor",), 100, 6000),
+    ("c", "counterspell", ("counterspell",), 100, 5000),
+    ("p", "protection", ("protects-creature", "protects-permanent", "protection", "gives-protection", "gives-hexproof", "gives-indestructible"), 30, 10000),
+    ("e", "recursion", ("recursion",), 200, 10000),
+)
+ROLES_MAX_AGE_DAYS = 7
+
+
+def scryfall_get(url):
+    """One Scryfall API page as JSON. A 404 (Scryfall's "no cards found", or a tag it doesn't know) returns None."""
+    req = urllib.request.Request(url, headers=SCRYFALL_HEADERS)
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            return json.loads(r.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return None
+        raise
+
+
+def fetch_tag(tag, api=SCRYFALL_API, retries=2, wait=30, pause=0.1):
+    """Every paper card with Scryfall oracle tag `tag`: (set of oracle ids, total_cards), or (None, 0) when Scryfall has no such cards.
+    Follows has_more / next_page, pausing `pause` seconds between requests as Scryfall asks."""
+    url = api.rstrip("/") + "/cards/search?" + urllib.parse.urlencode({"q": f"otag:{tag} game:paper", "unique": "cards", "order": "name"})
+    ids, total, first = set(), 0, True
+    while url:
+        page = with_retries(f"roles: otag:{tag}", lambda: scryfall_get(url), retries, wait)
+        if page is None or page.get("object") == "error":
+            if first:
+                return None, 0
+            raise OSError(f"otag:{tag}: a later page was missing")
+        if first:
+            total = int(page.get("total_cards") or 0)
+            first = False
+        for c in page.get("data") or []:
+            o = c.get("oracle_id") or next((f.get("oracle_id") for f in c.get("card_faces") or [] if f.get("oracle_id")), None)
+            if o:
+                ids.add(o)
+        url = page.get("next_page") if page.get("has_more") else None
+        if url:
+            time.sleep(pause)
+    return ids, total
+
+
+def load_roles(path):
+    """A roles.json written by an earlier run, or None."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            r = json.load(fh)
+        if isinstance(r, dict) and isinstance(r.get("c"), dict) and r.get("at"):
+            return r
+    except Exception:
+        pass
+    return None
+
+
+def roles_age_days(r, now):
+    try:
+        at = dt.datetime.strptime(r["at"][:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=dt.timezone.utc)
+        return (now - at).total_seconds() / 86400
+    except Exception:
+        return 1e9
+
+
+def build_roles(prev, api=SCRYFALL_API, retries=2, wait=30, pause=0.1, now=None, fetch=None):
+    """Ask Scryfall for every role's tags. A role whose tags all fail (unknown tag, error, a count outside its range) keeps the letter
+    from `prev` (last week's roles). Returns the new roles dict, or None when no role answered (keep `prev` whole)."""
+    fetch = fetch or (lambda tag: fetch_tag(tag, api, retries, wait, pause))
+    now = now or dt.datetime.now(dt.timezone.utc)
+    prev_c = (prev or {}).get("c") or {}
+    letters, tags_seen, ok, answered = {}, {}, True, 0
+    for letter, role, tags, lo, hi in ROLE_TAGS:
+        got = None
+        for tag in tags:
+            try:
+                ids, total = fetch(tag)
+            except Exception as e:
+                print(f"roles: otag:{tag} ({role}) failed ({e!r}); skipped", file=sys.stderr, flush=True)
+                tags_seen[tag] = None
+                continue
+            tags_seen[tag] = total if ids is not None else None
+            if ids is None:
+                print(f"roles: otag:{tag} ({role}): Scryfall has no cards with this tag; skipped", flush=True)
+                continue
+            if not (lo <= total <= hi) or len(ids) < lo:
+                print(f"roles: otag:{tag} ({role}): total_cards {total} (read {len(ids)}) is outside {lo}..{hi}; skipped", flush=True)
+                continue
+            print(f"roles: otag:{tag} ({role}): total_cards {total}, read {len(ids)}", flush=True)
+            got = (got or set()) | ids
+        if got is None:
+            ok = False
+            kept = [o for o, ls in prev_c.items() if letter in ls]
+            print(f"roles: {role}: no tag answered; kept last week's {len(kept)} cards", flush=True)
+            got = set(kept)
+        else:
+            answered += 1
+        for o in got:
+            letters[o] = letters.get(o, "") + letter
+    if not answered:
+        return None
+    order = "".join(t[0] for t in ROLE_TAGS)
+    c = {o: "".join(sorted(ls, key=order.index)) for o, ls in letters.items()}
+    return {"at": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "ok": ok, "tags": tags_seen, "c": c}
+
+
+def roles_step(enabled, prev_dir, out_dir, api=SCRYFALL_API, retries=2, wait=30, pause=0.1, now=None, fetch=None):
+    """This run's roles: last run's roles.json when it is under a week old and complete (or --roles is off), otherwise asked again;
+    when asking fails the last good file is kept. Writes out_dir/roles.json and returns its dict (or None when there is none)."""
+    now = now or dt.datetime.now(dt.timezone.utc)
+    prev = load_roles(os.path.join(prev_dir, "roles.json")) if prev_dir else None
+    roles = prev
+    if not enabled:
+        if prev:
+            print(f"roles: not asked this run; kept the roles from {prev['at']}", flush=True)
+    elif prev and prev.get("ok") and roles_age_days(prev, now) < ROLES_MAX_AGE_DAYS:
+        print(f"roles: the roles from {prev['at']} are under {ROLES_MAX_AGE_DAYS} days old; kept ({len(prev['c'])} cards)", flush=True)
+    else:
+        try:
+            fresh = build_roles(prev, api, retries, wait, pause, now, fetch)
+        except Exception as e:
+            print(f"roles: asking Scryfall failed ({e!r})", file=sys.stderr, flush=True)
+            fresh = None
+        if fresh:
+            roles = fresh
+            print(f"roles: {len(fresh['c'])} cards with a role" + ("" if fresh["ok"] else " (some roles kept last week's cards)"), flush=True)
+        elif prev:
+            print(f"roles: no answer from Scryfall; kept the roles from {prev['at']}", file=sys.stderr, flush=True)
+        else:
+            print("roles: no answer from Scryfall and no earlier roles; cards are read from their text only", file=sys.stderr, flush=True)
+    if roles:
+        os.makedirs(out_dir, exist_ok=True)
+        with open(os.path.join(out_dir, "roles.json"), "w", encoding="utf-8") as fh:
+            json.dump(roles, fh, separators=(",", ":"), sort_keys=True)
+    return roles
 
 
 def load_sets(src):
@@ -462,11 +653,12 @@ def card_detail(infos):
     return d
 
 
-def write_names(root, ids, names, recent, oracle, tcg=None, tokrel=None, ts_by_set=None):
+def write_names(root, ids, names, recent, oracle, tcg=None, tokrel=None, ts_by_set=None, roles=None):
     """Write the name index: every paper printing (with its latest price when `recent`, id -> {finish: [prices]}, has one),
-    plus any printing that has a price, with each card's details and each printing's extras.
+    plus any printing that has a price, with each card's details and each printing's extras. `roles` (oracle id -> role letters,
+    from roles.json) adds "rl" to each card's details.
     Returns (printings, name files, set codes used, names with details, printings without a price)."""
-    tcg, tokrel, ts_by_set = tcg or {}, tokrel or {}, ts_by_set or {}
+    tcg, tokrel, ts_by_set, roles = tcg or {}, tokrel or {}, ts_by_set or {}, roles or {}
     bysid = {}
     for uuid, info in names.items():
         sid = ids.get(uuid)
@@ -502,7 +694,10 @@ def write_names(root, ids, names, recent, oracle, tcg=None, tokrel=None, ts_by_s
                         nums.append(n_)
             if nums:
                 pr["k"] = nums
-        built.append((oracle.get(uuid), info["name"], faces, card_detail(infos), pr, not lang_code(info.get("lang"))))
+        detail = card_detail(infos)
+        if roles.get(oracle.get(uuid)):
+            detail["rl"] = roles[oracle[uuid]]   # Scryfall oracle-tag role letters (Build 287)
+        built.append((oracle.get(uuid), info["name"], faces, detail, pr, not lang_code(info.get("lang"))))
     # Full card names first, then face names: a face name never joins a different card that already owns that key
     for faces_pass in (False, True):
         for orc, full, faces, detail, pr, english in built:
@@ -832,6 +1027,9 @@ def main():
                     help="tokens.csv (path or URL): written to t/<token set>.json and linked from cards; failures are ignored")
     ap.add_argument("--sets", help="sets.csv (path or URL) for set names and release dates, written to out/sets.json")
     ap.add_argument("--legalities", help="cardLegalities.csv (path or URL): marks cards banned in Commander; failures are ignored")
+    ap.add_argument("--roles", action="store_true",
+                    help="ask Scryfall for card roles (oracle tags) when last run's roles.json is a week old; without it the old file is kept")
+    ap.add_argument("--roles-api", default=SCRYFALL_API, help="Scryfall API base (tests point it at a local server)")
     ap.add_argument("--inspect", nargs="*", default=[],
                     help="CSV files (path or URL) to describe in out/columns.json (columns, category values, sample row)")
     ap.add_argument("--out", required=True, help="folder for the recent files + meta.json (the `data` branch)")
@@ -947,6 +1145,11 @@ def main():
             all_sets = with_retries(f"sets: {a.sets}", lambda: load_sets(a.sets), a.retries, a.retry_wait)
         except Exception as e:
             print(f"sets: {a.sets} skipped ({e})", file=sys.stderr, flush=True)
+    roles = None
+    try:
+        roles = roles_step(a.roles, a.prev, out_dir, a.roles_api, min(a.retries, 2), min(a.retry_wait, 60))
+    except Exception as e:
+        print(f"roles: skipped ({e!r})", file=sys.stderr, flush=True)
     name_info, set_count, tok_info, tokrel = None, 0, None, {}
     try:
         if tok_names:
@@ -960,7 +1163,7 @@ def main():
     try:
         if names:
             ts_by_set = {c: v["ts"] for c, v in all_sets.items() if v.get("ts")}
-            name_info = write_names(os.path.join(out_dir, "n"), ids, names, recent, oracle, tcg, tokrel, ts_by_set)
+            name_info = write_names(os.path.join(out_dir, "n"), ids, names, recent, oracle, tcg, tokrel, ts_by_set, roles and roles.get("c"))
             print(f"names: {name_info[0]} printings in {name_info[1]} files, {name_info[3]} names, {name_info[4]} printings without a price", flush=True)
             used = {c: all_sets[c] for c in sorted(name_info[2]) if c in all_sets}
             if used:
@@ -1012,6 +1215,8 @@ def main():
         meta["tokens"], meta["tokenSets"] = tok_info[0], tok_info[1]
     if swap_info:
         meta["swaps"], meta["swapFiles"] = swap_info[0], swap_info[1]
+    if roles:
+        meta["rolesAt"], meta["rolesOk"], meta["roles"] = roles["at"], bool(roles.get("ok")), len(roles["c"])
     if a.archive_base:
         meta["archive"] = a.archive_base if a.archive_base.endswith("/") else a.archive_base + "/"
     with open(os.path.join(out_dir, "meta.json"), "w") as fh:
