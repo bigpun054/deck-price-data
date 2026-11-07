@@ -23,6 +23,7 @@ Two kinds of output, so the app only re-downloads a small amount each day:
                    "t": [special treatments: MTGJSON promoTypes and frameEffects as written (e.g. surgefoil, showcase),
                          a non-black border colour, and fullart / promo / oversized / textless / alternative],  (omitted if none)
                    "r": rarity letter c/u/r/m/s(pecial)/b(onus),
+                   "lg": Scryfall language code (ja, zhs, de ...) for a printing that is not in English (omitted for English),
                    "$": {"n"|"f"|"e": latest TCGplayer price in US cents}}  (finishes with a price only)
     Lists every paper printing (and any other printing that has price data), so a card name can be turned into all its printings
     and ids; a printing with no price simply has no "$".
@@ -184,6 +185,7 @@ def load_names(src):
                 "gc": row.get("isGameChanger") == "true", "flavor": row.get("flavorName") or "",
                 "rk": row.get("edhrecRank") or "",
                 "rel": row.get("relatedCards") or "",
+                "lang": row.get("language") or "",
                 # a printing you can own on paper (not MTGO / Arena only); files without the availability column count as paper
                 "paper": ("paper" in [x.strip() for x in (row.get("availability") or "").split(",")]) if "availability" in row
                          else row.get("isOnlineOnly") != "true",
@@ -327,8 +329,22 @@ def load_sets(src):
     return out
 
 
+# MTGJSON's language names -> Scryfall's language codes (a printing in English gets no code)
+LANG_CODES = {"Japanese": "ja", "Chinese Simplified": "zhs", "Chinese Traditional": "zht", "Korean": "ko", "German": "de",
+              "French": "fr", "Italian": "it", "Spanish": "es", "Portuguese (Brazil)": "pt", "Portuguese": "pt", "Russian": "ru",
+              "Phyrexian": "ph", "Ancient Greek": "grc", "Latin": "la", "Hebrew": "he", "Arabic": "ar", "Sanskrit": "sa"}
+
+
+def lang_code(name):
+    """Scryfall's code for a MTGJSON language name; "" for English or no language. An unknown name gets a lower-case short form."""
+    name = (name or "").strip()
+    if not name or name.lower() == "english":
+        return ""
+    return LANG_CODES.get(name) or re.sub(r"[^a-z]+", "", name.lower())[:3] or ""
+
+
 def printing_info(info, oracle_id, prices):
-    """One printing for the name index: finishes (n/f/e/s), treatment tags, rarity letter, latest price per finish."""
+    """One printing for the name index: finishes (n/f/e/s), treatment tags, rarity letter, language code (not English), latest price per finish."""
     fins = "".join(c for w, c in (("nonfoil", "n"), ("foil", "f"), ("etched", "e"), ("signed", "s"))
                    if w in [x.strip() for x in info["fin"].split(",")])
     tags = []
@@ -344,6 +360,9 @@ def printing_info(info, oracle_id, prices):
         ent["t"] = tags
     if info["rar"]:
         ent["r"] = info["rar"][0]
+    lg = lang_code(info.get("lang"))
+    if lg:
+        ent["lg"] = lg
     latest = {}
     for fin, vals in prices.items():
         last = next((v for v in reversed(vals) if v is not None), None)
@@ -483,10 +502,10 @@ def write_names(root, ids, names, recent, oracle, tcg=None, tokrel=None, ts_by_s
                         nums.append(n_)
             if nums:
                 pr["k"] = nums
-        built.append((oracle.get(uuid), info["name"], faces, card_detail(infos), pr))
+        built.append((oracle.get(uuid), info["name"], faces, card_detail(infos), pr, not lang_code(info.get("lang"))))
     # Full card names first, then face names: a face name never joins a different card that already owns that key
     for faces_pass in (False, True):
-        for orc, full, faces, detail, pr in built:
+        for orc, full, faces, detail, pr, english in built:
             for nm in (faces if faces_pass else [full]):
                 key = norm_name(nm)
                 if not key:
@@ -497,16 +516,20 @@ def write_names(root, ids, names, recent, oracle, tcg=None, tokrel=None, ts_by_s
                     if orc:
                         ent["o"] = orc
                     ent["d"] = detail
+                    ent["_en"] = english
                 elif faces_pass and ent.get("o") != orc:
                     continue  # a different card owns this name
+                elif english and not ent.get("_en"):
+                    ent["d"], ent["_en"] = detail, True  # the card's details come from an English printing when there is one
                 ent["p"].append(pr)
     shards = {}
     names_list = []
     for key, ent in index.items():
+        ent.pop("_en", None)
         ent["p"].sort(key=lambda p: (p["s"], p["c"].zfill(6), p["i"]))
         d = ent.get("d") or {}
         face0 = (d.get("fc") or [{}])[0]
-        names_list.append([ent["n"], ent.get("o", ""), ent["p"][0]["i"], d.get("mc") or face0.get("mc") or "",
+        names_list.append([ent["n"], ent.get("o", ""), next((p["i"] for p in ent["p"] if not p.get("lg")), ent["p"][0]["i"]), d.get("mc") or face0.get("mc") or "",
                            d.get("ty") or face0.get("ty") or "", "".join(d.get("ci") or [])])
         shards.setdefault(key.replace(" ", "")[:2] or "_", {})[key] = ent
     os.makedirs(root, exist_ok=True)
