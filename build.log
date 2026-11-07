@@ -1,0 +1,22 @@
+identifiers: 115906 from https://mtgjson.com/api/v5/csv/cardIdentifiers.csv
+identifiers: +9563 from https://mtgjson.com/api/v5/csv/tokenIdentifiers.csv
+  read 20000 cards
+  read 40000 cards
+  read 60000 cards
+  read 80000 cards
+  read 100000 cards
+names: +115906 from https://mtgjson.com/api/v5/csv/cards.csv
+tokens: +9563 from https://mtgjson.com/api/v5/csv/tokens.csv
+legalities: 339 printings banned in Commander
+roles: the roles from 2026-11-07T05:55:18Z are under 7 days old; kept (16574 cards)
+tokens: 3753 tokens in 299 files
+names: 104271 printings in 348 files, 36317 names, 5510 printings without a price
+sets: 704 of 704 set codes found
+swaps: 4653 cards with budget swaps in 263 files (19s)
+done {"latest": "2026-11-07", "d0": 20700, "days": 65, "block": 90, "arch": [229], "keep": 730, "built": "2026-11-07T15:54:29Z", "cards": 100544, "shards": 4096, "names": 104271, "nameFiles": 348, "nameFormat": 3, "unpriced": 5510, "namesV": "0e946eb79d", "legalOk": true, "sets": 704, "tokens": 3753, "tokenSets": 299, "swaps": 4653, "swapFiles": 263, "rolesAt": "2026-11-07T05:55:18Z", "rolesOk": true, "roles": 16574, "archive": "https://raw.githubusercontent.com/bigpun054/deck-price-data/archive/"}
+combos: export downloaded: 32.1 MB
+combos: 121296 variants, 7527 cards, 182 templates, 1104 features, 28732 recipes, 5845 aliases (20s)
+combos: templates: 182 of 182 matched, 0 searched today, 0 failed (0s)
+combos: written: variants 150.9 MB in 4096 files, index 38.0 MB in 311 files, names 0.21 MB, cards 6.83 MB, templates 0.05 MB, features 0.12 MB, recipes 0.59 MB, aliases 0.25 MB, matches 0.75 MB
+combos: variant field sizes (MB): description 54.3, uses 28.3, produces 10.1, prices 7.6, legalities 6.4, notablePrerequisites 3.8, id 2.2, includes 2.2, notes 2.1, easyPrerequisites 1.8, of 0.8, manaNeeded 0.6, requires 0.6, identity 0.5, status 0.5, bracketTag 0.4, variantCount 0.3, popularity 0.2, manaValueNeeded 0.1, saltVoteCount 0.1, spoiler 0.0, salt 0.0
+built
